@@ -1,0 +1,12 @@
+schema_version = "1.0.0"
+id = "flexible_drawing"
+version = "0.1.0"
+name = "Flexible Drawing"
+tagline = "Host-neutral drawing engine integration"
+maintainer = "Flexible Drawing contributors"
+type = "add-on"
+blender_version_min = "5.2.0"
+blender_version_max = "5.3.0"
+license = ["SPDX:GPL-3.0-or-later"]
+copyright = ["2026 Flexible Drawing contributors"]
+platforms = ["macos-arm64"]

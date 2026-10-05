@@ -16,27 +16,14 @@ import argparse
 import os
 from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
-import types
+
+from packaged_blender import MODULE, Install, StopLeftovers
 
 HERE = Path(__file__).resolve().parent
 MARKER = "FLEXIBLE_DRAWING_REALTIME_PLANE_OK"
-
-
-def _stopLeftovers(extension: Path, scope: str) -> None:
-    """End a Realtime Plane a failed run left behind in its scope, and forget the scope."""
-    root = types.ModuleType("flexible_drawing")
-    root.__path__ = [str(extension)]
-    sys.modules["flexible_drawing"] = root
-    from flexible_drawing.realtime_plane import process
-
-    running = process.Attach(process.StateDirectory(scope))
-    if running is not None:
-        running.Stop()
-    shutil.rmtree(process.StateDirectory(scope), ignore_errors=True)
 
 
 def main() -> int:
@@ -57,61 +44,10 @@ def main() -> int:
     scope = f"blender-test-{os.getpid()}"
     with tempfile.TemporaryDirectory(prefix="flexible-drawing-realtime-plane-") as directory:
         root = Path(directory)
-        bundle = []
-        if args.interactive:
-            install = ["cmake", "--install", str(args.build_dir), "--component", "realtime_plane"]
-            subprocess.run([*install, "--prefix", str(root / "realtime-plane")], check=True, capture_output=True)
-            bundle = ["--realtime-plane-dir", str(root / "realtime-plane")]
-        subprocess.run(
-            [
-                sys.executable,
-                str(args.package_script),
-                "--extension",
-                str(args.extension_dir.resolve()),
-                "--library",
-                str(args.library),
-                "--wheel-dir",
-                str(args.wheel_dir),
-                *bundle,
-                "--output",
-                str(root / "flexible_drawing.zip"),
-            ],
-            check=True,
-            capture_output=True,
-        )
-        environment = {
-            **os.environ,
-            "BLENDER_USER_CONFIG": str(root / "config"),
-            "BLENDER_USER_SCRIPTS": str(root / "scripts"),
-            "BLENDER_USER_EXTENSIONS": str(root / "extensions"),
-            "BLENDER_USER_DATAFILES": str(root / "datafiles"),
-            "FLEXIBLE_DRAWING_REALTIME_PLANE_SCOPE": scope,
-        }
-        environment.pop("FLEXIBLE_DRAWING_PROTOCOL_DIR", None)  # the package carries its own profile
+        environment = Install(root, args, scope, buildDir=args.build_dir if args.interactive else None)
         if args.peer is not None:
             standIn = [sys.executable, str(HERE / "realtime_plane_stand_in.py"), "--peer", str(args.peer)]
             environment["FLEXIBLE_DRAWING_REALTIME_PLANE_COMMAND"] = shlex.join(standIn)
-        installed = subprocess.run(
-            [
-                str(args.blender),
-                "--background",
-                "--factory-startup",
-                "--command",
-                "extension",
-                "install-file",
-                "-r",
-                "user_default",
-                "-e",
-                str(root / "flexible_drawing.zip"),
-            ],
-            env=environment,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if installed.returncode != 0:
-            print(installed.stdout + installed.stderr, file=sys.stderr)
-            return installed.returncode or 1
         try:
             completed = subprocess.run(
                 [
@@ -123,7 +59,7 @@ def main() -> int:
                     str(HERE / "blender_realtime_plane_session.py"),
                     "--",
                     "--module",
-                    "bl_ext.user_default.flexible_drawing",
+                    MODULE,
                 ],
                 env=environment,
                 capture_output=True,
@@ -132,7 +68,7 @@ def main() -> int:
                 check=False,
             )
         finally:
-            _stopLeftovers(root / "extensions/user_default/flexible_drawing", scope)
+            StopLeftovers(root, scope)
     output = completed.stdout + completed.stderr
     if completed.returncode != 0 or MARKER not in output:
         print(output, file=sys.stderr)

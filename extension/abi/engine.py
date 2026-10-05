@@ -34,7 +34,7 @@ class EngineBridge:
     """A live engine, from `Initialize` to `Shutdown`.
 
     Two engines share nothing, exactly as on the C side. Every call goes through one of the
-    interfaces the engine publishes — `engine.Documents`, `engine.Receivers` — each of which mirrors
+    interfaces the engine publishes — `engine.Documents`, `engine.UiSchema` — each of which mirrors
     one table in the C interface. The engine finds them itself, so adding one never changes this
     file; see `registry.py`.
 
@@ -43,21 +43,11 @@ class EngineBridge:
     initialization step to forget.
 
     ```python
-    from flexible_drawing.abi import EngineBridge, FD_RECEIVER_ORIGIN_MEASURED
+    from flexible_drawing.abi import EngineBridge
 
     with EngineBridge.Open(log=print) as engine:
         document = engine.Documents.Create("Untitled")
         print(document.DocumentId, document.Revision, document.LayerCount)
-
-        receiver = engine.Receivers.Create(seed=42)
-        engine.Receivers.BeginContact(receiver.ReceiverId, 1)
-        batch = engine.Receivers.Batch()
-        batch.Append(
-            x=0.0, y=0.0, pressure=0.5, timeNanoseconds=1, sequence=1,
-            origin=FD_RECEIVER_ORIGIN_MEASURED,
-        )
-        print(engine.Receivers.Submit(receiver.ReceiverId, 1, 1, batch).Revision)
-
         engine.Documents.Close(document.DocumentId)
     ```
 

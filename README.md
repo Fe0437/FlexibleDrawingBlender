@@ -1,21 +1,22 @@
 # Blender extension
 
 This application lets Blender create and use Flexible Drawing documents. It
-loads the native engine, connects Blender input and document state to it, and
-registers the user interface shown inside Blender.
+loads the native engine, connects document state to it, and registers the user
+interface shown inside Blender. Painting happens in the Realtime Plane, a
+separate program that reads the pen; Blender shows its canvas as an image.
 
-Today the extension can start and stop the engine, create and inspect a
-document, save its identity in a `.blend` file, open an Image Editor or 3D View
-window, and submit a stroke. The current canvas reports changed tiles but does
-not display paint yet.
+Today the extension can start and stop the engine and the Realtime Plane,
+create a document and save its identity in a `.blend` file, change tool
+settings, and show the canvas as an image, in an Image Editor or on an
+object's material.
 
 The Python package is arranged by job:
 
 - `extension/__init__.py` starts and stops the extension;
-- `extension/host/` reads input and document data from Blender;
+- `extension/host/` reads and writes document, canvas and geometry data in Blender;
 - `extension/presentation/` is the native Blender frontend: operators,
-  workspace toolbar tools, dockable panels/properties, resource/layer views,
-  and the future custom node-editor projection;
+  dockable panels/properties, resource/layer views, and the future custom
+  node-editor projection;
 - `extension/abi/` calls the native engine and never imports Blender;
 - `fd_plugin/` owns the native Blender-specific integration boundaries.
 

@@ -6,7 +6,8 @@ and shows what the Realtime Plane reports back.
 
 The link lives for as long as the add-on is enabled and the timer keeps it moving: it watches the
 process, opens a new session when one ends, and moves records. When anything a person can see
-changed, the projected UI takes the effective values and the Properties editor redraws.
+changed, the projected UI takes the effective values and the Properties editor redraws, and the
+tiles that arrived are shown in the canvas image (see `canvas_image`).
 
 Disabling the add-on or quitting Blender leaves the Realtime Plane running; the next Blender finds it
 again. Only "Stop Canvas" ends it.
@@ -19,7 +20,7 @@ import bpy
 
 from ..realtime_plane.link import LinkState
 from ..realtime_plane.process import ConfiguredProgram, Program
-from . import RealtimePlane
+from . import RealtimePlane, canvas_image
 from .ui_projection import Refresh
 
 _logger = logging.getLogger("flexible_drawing")
@@ -80,7 +81,8 @@ def _tick() -> float | None:
     link = RealtimePlane()
     if link is None or not _watching:
         return None
-    if link.Advance():
+    changed = link.Advance()
+    if canvas_image.Project(link) or changed:
         Refresh(bpy.context.window_manager)
         _redrawProperties()
     return CONNECTED_INTERVAL if link.State is LinkState.CONNECTED else WAITING_INTERVAL
@@ -92,6 +94,8 @@ def Watch() -> None:
     if not _watching:
         _watching = True
         bpy.app.timers.register(_tick, first_interval=0.0, persistent=True)
+        if canvas_image.FileLoaded not in bpy.app.handlers.load_post:
+            bpy.app.handlers.load_post.append(canvas_image.FileLoaded)
 
 
 def StopWatching() -> None:
@@ -100,6 +104,9 @@ def StopWatching() -> None:
     _watching = False
     if bpy.app.timers.is_registered(_tick):
         bpy.app.timers.unregister(_tick)
+    if canvas_image.FileLoaded in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(canvas_image.FileLoaded)
+    canvas_image.Reset()
 
 
 class OpenCanvasOperator(bpy.types.Operator):

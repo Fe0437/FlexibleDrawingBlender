@@ -1,4 +1,5 @@
-"""Inside Blender: open the canvas, change a setting through the projected UI, reattach, and stop.
+"""Inside Blender: open the canvas, see it as an image, change a setting through the projected UI,
+reattach, and stop.
 
 Run by `test_blender_realtime_plane.py` as
 ``blender [--background] --python blender_realtime_plane_session.py -- --module M``.
@@ -8,7 +9,9 @@ The Realtime Plane is whatever the add-on resolves: the stand-in a background ru
 Everything goes through what a person uses: the "Open Canvas" and "Stop Canvas" operators, and the
 properties Blender made from the engine's UI schema, found by their labels. In the background there
 is no event loop, so the script runs the add-on's timer turn itself; with a window, Blender's own
-timer runs it and the script only watches. The result is one line, `FLEXIBLE_DRAWING_REALTIME_PLANE_OK`,
+timer runs it and the script only watches. Where the stand-in's fake pen paints, the canvas image
+must hold exactly the pixels the session received, stay one image across reattaching, and survive
+the add-on being disabled. The result is one line, `FLEXIBLE_DRAWING_REALTIME_PLANE_OK`,
 or an exception.
 """
 
@@ -19,6 +22,7 @@ from collections.abc import Callable, Iterator
 import importlib
 import os
 import sys
+import tempfile
 import time
 import types
 
@@ -39,6 +43,8 @@ flexible_drawing = importlib.import_module(arguments.module)
 presentation = importlib.import_module(f"{arguments.module}.presentation")
 realtime_plane = importlib.import_module(f"{arguments.module}.presentation.realtime_plane")
 LinkState = importlib.import_module(f"{arguments.module}.realtime_plane.link").LinkState
+canvas_image = importlib.import_module(f"{arguments.module}.presentation.canvas_image")
+canvas_binding = importlib.import_module(f"{arguments.module}.host.canvas_binding")
 
 
 def _property(label: str) -> str:
@@ -92,12 +98,129 @@ def _activeToolLabels() -> list[str]:
     return layout.Labels
 
 
+def _canvasImages() -> list[object]:
+    """Every image that shows a Realtime Plane surface."""
+    return [image for image in bpy.data.images if canvas_image.SURFACE_KEY in image]
+
+
+def _imageShowsTheCanvas() -> bool:
+    """Whether the canvas image holds, tile for tile, the pixels the session received."""
+    mirror = _link().Session.Mirror
+    images = _canvasImages()
+    if mirror.Image is None or len(images) != 1 or not mirror.Tiles:
+        return False
+    image = images[0]
+    shape = mirror.Image
+    if tuple(image.size) != (shape.Width, shape.Height):
+        return False
+    pixels = [0.0] * (shape.Width * shape.Height * 4)
+    image.pixels.foreach_get(pixels)
+    for (x, y), (_revision, data) in mirror.Tiles.items():
+        sent = memoryview(data).cast("f")
+        for row in range(shape.TileExtent):
+            top = y * shape.TileExtent + row
+            if top >= shape.Height:
+                continue
+            for column in range(shape.TileExtent):
+                left = x * shape.TileExtent + column
+                if left >= shape.Width:
+                    continue
+                shown = ((shape.Height - 1 - top) * shape.Width + left) * 4
+                received = (row * shape.TileExtent + column) * 4
+                if any(abs(pixels[shown + c] - sent[received + c]) > 1e-6 for c in range(4)):
+                    return False
+    return True
+
+
+def _checkCanvasImage() -> None:
+    """The image is the canvas: one image, float, premultiplied, linear, the canvas's size."""
+    (image,) = _canvasImages()
+    shape = _link().Session.Mirror.Image
+    assert image.is_float and image.alpha_mode == "PREMUL", "the canvas image is not premultiplied float"
+    assert image.colorspace_settings.name == canvas_image.COLOR_SPACE, image.colorspace_settings.name
+    assert tuple(image.size) == (shape.Width, shape.Height), tuple(image.size)
+    assert image[canvas_image.SURFACE_KEY] == str(shape.Surface)
+    assert canvas_image.Status(_link()).startswith("Canvas image: revision"), canvas_image.Status(_link())
+
+
+def _materialShowsTheCanvas(materialName: str, surface: int) -> Callable[[], bool]:
+    """Whether the material's one bound node shows the canvas image, and that image shows the canvas."""
+
+    def shows() -> bool:
+        material = bpy.data.materials.get(materialName)
+        nodes = canvas_binding.BoundNodes(material, surface)
+        return len(nodes) == 1 and nodes[0].image in _canvasImages() and _imageShowsTheCanvas()
+
+    return shows
+
+
+def _materialSteps() -> Iterator[tuple[str, Callable[[], bool]]]:
+    """Bind the canvas into a material, and keep it bound through what a person does to the scene."""
+    if bpy.context.scene.get("flexible_drawing_document_id") is None:
+        assert bpy.ops.flexible_drawing.document_create() == {"FINISHED"}
+    bpy.ops.mesh.primitive_plane_add()
+    plane = bpy.context.object
+    assert bpy.ops.flexible_drawing.canvas_material() == {"FINISHED"}
+    material = plane.active_material
+    surface = int(_canvasImages()[0][canvas_image.SURFACE_KEY])
+    (node,) = canvas_binding.BoundNodes(material, surface)
+    shader = material.node_tree.nodes["Principled BSDF"]
+    assert shader.inputs["Base Color"].links[0].from_node == node, "the canvas does not colour the material"
+    assert shader.inputs["Alpha"].links[0].from_node == node, "the canvas alpha does not reach the material"
+    assert node[canvas_binding.DOCUMENT] == bpy.context.scene["flexible_drawing_document_id"]
+    assert bpy.ops.flexible_drawing.canvas_material() == {"FINISHED"}
+    assert len(canvas_binding.BoundNodes(material, surface)) == 1, "binding twice added a node"
+    shows = _materialShowsTheCanvas(material.name, surface)
+    yield "the material to show the canvas", shows
+
+    # Editing the mesh changes nothing the binding depends on, and the canvas keeps arriving.
+    assert bpy.ops.object.mode_set(mode="EDIT") == {"FINISHED"}
+    seen = _link().Session.Mirror.CanvasRevision
+
+    def moved() -> bool:
+        return _link().Session.Mirror.CanvasRevision > seen and shows()
+
+    yield "the canvas to move while the mesh is edited", moved
+    assert bpy.ops.object.mode_set(mode="OBJECT") == {"FINISHED"}
+
+    # The object goes; the material and its binding stay for whoever uses them next.
+    bpy.data.objects.remove(plane)
+    yield "the canvas to keep arriving without the object", shows
+
+    # The image is only a copy: deleted, it comes back with exactly the pixels received.
+    bpy.data.images.remove(_canvasImages()[0])
+    yield "the deleted canvas image to come back into the material", shows
+
+    # One click: a plane with the canvas's proportions, its own material bound to the canvas. Pressed
+    # in the Properties editor, the context has no object, as here.
+    with bpy.context.temp_override(object=None, active_object=None):
+        assert bpy.ops.flexible_drawing.canvas_plane() == {"FINISHED"}
+    canvasPlane = bpy.context.view_layer.objects.active
+    width, height = _canvasImages()[0].size
+    proportion = canvasPlane.dimensions[0] / canvasPlane.dimensions[1]
+    assert abs(proportion - width / height) < 1e-6, tuple(canvasPlane.dimensions)
+    yield "the canvas plane to show the canvas", _materialShowsTheCanvas(canvasPlane.active_material.name, surface)
+
+    # A saved file keeps the binding, not the pixels; reopened, the session fills the image again.
+    path = os.path.join(tempfile.mkdtemp(prefix="flexible-drawing-canvas-"), "canvas.blend")
+    assert bpy.ops.wm.save_as_mainfile(filepath=path) == {"FINISHED"}
+    name = material.name
+    assert bpy.ops.wm.open_mainfile(filepath=path) == {"FINISHED"}
+    yield "the reopened file to show the canvas", _materialShowsTheCanvas(name, surface)
+
+
 def _steps() -> Iterator[tuple[str, Callable[[], bool]]]:
     """The conversation, as a person has it; each step yields what it waits for."""
     assert hasattr(bpy.types, "FD_PT_ui_0"), "the engine's UI was not projected into a panel"
     assert bpy.ops.flexible_drawing.canvas_open() == {"FINISHED"}
     yield "a session with the canvas", _connected
     pid = _link().Process.Pid
+    # The stand-in's fake pen paints, so its canvas reaches the image; nobody touches the real one.
+    painted = bpy.app.background
+    if painted:
+        yield "the canvas image to show the canvas", _imageShowsTheCanvas
+        _checkCanvasImage()
+        yield from _materialSteps()
     assert "Effective freehand.pressure_brush" in _activeToolLabels()
 
     hardness = _property("Hardness")
@@ -127,6 +250,10 @@ def _steps() -> Iterator[tuple[str, Callable[[], bool]]]:
         flexible_drawing.register()
         yield "the canvas to be found again", _connected
         assert _link().Process.Pid == pid, "a second Realtime Plane was started"
+        # A new session rebuilds the same image from the whole canvas; it never adds another.
+        if painted:
+            yield "the canvas image to show the canvas again", _imageShowsTheCanvas
+            assert len(_canvasImages()) == 1, "enabling the add-on again added a canvas image"
 
     assert bpy.ops.flexible_drawing.canvas_stop() == {"FINISHED"}
     assert _link().State is LinkState.STOPPED
@@ -137,6 +264,8 @@ def _steps() -> Iterator[tuple[str, Callable[[], bool]]]:
         alive = False
     assert not alive, "Stop Canvas left the Realtime Plane running"
     flexible_drawing.unregister()
+    assert not bpy.app.timers.is_registered(realtime_plane._tick), "unregistering left the timer running"
+    assert len(_canvasImages()) == (1 if painted else 0), "the canvas image was duplicated"
     print("FLEXIBLE_DRAWING_REALTIME_PLANE_OK", flush=True)
 
 

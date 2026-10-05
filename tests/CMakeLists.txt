@@ -40,6 +40,7 @@ flexible_drawing_add_test(
     --project-source-dir "${PROJECT_SOURCE_DIR}"
     --extension-dir "${CMAKE_CURRENT_SOURCE_DIR}/../extension"
     --library $<TARGET_FILE:flexible_drawing_host_abi>
+    --diagnostics $<BOOL:${DEBUG_ENABLED}>
   LABELS unit blender package
   TIMEOUT 30
   SEED 0
@@ -65,6 +66,15 @@ if(TARGET FlexibleDrawing::RealtimePlaneProtocol)
       --extension-dir "${CMAKE_CURRENT_SOURCE_DIR}/../extension"
       --protocol-dir "${blender_plugin_profile_dir}"
     LABELS unit blender realtime_plane ipc
+    TIMEOUT 30
+    SEED 0
+    FIXTURES_REQUIRED flexible_drawing_test_environment)
+  flexible_drawing_add_test(
+    NAME flexible_drawing.blender_image_projection
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_image_projection.py"
+      --extension-dir "${CMAKE_CURRENT_SOURCE_DIR}/../extension"
+      --protocol-dir "${blender_plugin_profile_dir}"
+    LABELS unit blender realtime_plane
     TIMEOUT 30
     SEED 0
     FIXTURES_REQUIRED flexible_drawing_test_environment)
@@ -146,24 +156,9 @@ if(BLENDER_PLUGIN_EXECUTABLE)
       FIXTURES_REQUIRED flexible_drawing_test_environment)
   endif()
 
-  # This opens a real Blender window and waits on Blender's event loop. Keep it out of the smoke
-  # gate and require a caller that explicitly declares an interactive desktop session.
+  # These open a real window and wait on its event loop. Keep them out of the smoke gate and require
+  # a caller that explicitly declares an interactive desktop session.
   if(BLENDER_PLUGIN_INTERACTIVE)
-    flexible_drawing_add_test(
-      NAME flexible_drawing.blender_paint_interaction
-      COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/blender/smoke_driver.py"
-        --source "${PROJECT_SOURCE_DIR}"
-        --library $<TARGET_FILE:flexible_drawing_host_abi>
-        --executable "${BLENDER_PLUGIN_EXECUTABLE}"
-        --script "${PROJECT_SOURCE_DIR}/tools/blender/paint_interaction.py"
-        --cycles 1
-        --success-marker FLEXIBLE_DRAWING_PAINT_INTERACTION_OK
-        --interactive
-      LABELS blender integration interactive
-      TIMEOUT 120
-      SEED 0
-      FIXTURES_REQUIRED flexible_drawing_test_environment)
-
     # The real Realtime Plane, installed and bundled as a person gets it, launched from Blender.
     if(BLENDER_PLUGIN_WHEEL_DIR AND TARGET flexible_drawing_realtime_plane)
       flexible_drawing_add_test(
@@ -180,6 +175,55 @@ if(BLENDER_PLUGIN_EXECUTABLE)
         TIMEOUT 240
         SEED 0
         FIXTURES_REQUIRED flexible_drawing_test_environment)
+    endif()
+  endif()
+
+  # Checks that draw in the real Realtime Plane, packaged with the extension. Strokes come from
+  # pointer events posted to the operating system, so they run unattended with the other tests; on
+  # a machine where events reach no window (no permission, a locked screen, no desktop) they skip
+  # (77). They take the mouse while they draw, so they run alone. The same scripts take
+  # `--input person` for a person with a pen: see docs/MANUAL_CHECKS.md.
+  if(BLENDER_PLUGIN_WHEEL_DIR AND TARGET flexible_drawing_realtime_plane)
+    flexible_drawing_add_test(
+      NAME flexible_drawing.blender_canvas_check
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_canvas_in_blender.py"
+        --blender "${BLENDER_PLUGIN_EXECUTABLE}"
+        --package-script "${PROJECT_SOURCE_DIR}/tools/blender/package.py"
+        --extension-dir "${CMAKE_CURRENT_SOURCE_DIR}/../extension"
+        --library $<TARGET_FILE:flexible_drawing_host_abi>
+        --wheel-dir "${BLENDER_PLUGIN_WHEEL_DIR}"
+        --build-dir "${CMAKE_BINARY_DIR}"
+        --input synthetic
+        --output "${CMAKE_CURRENT_BINARY_DIR}/blender_canvas_check.json"
+      LABELS blender integration realtime_plane drawing
+      TIMEOUT 600
+      SEED 0
+      SKIP_RETURN_CODE 77
+      FIXTURES_REQUIRED flexible_drawing_test_environment)
+    set_tests_properties(flexible_drawing.blender_canvas_check PROPERTIES RUN_SERIAL TRUE)
+
+    # The same Realtime Plane launched directly and by Blender, judged against the latency budget
+    # declared before the comparison. Slow and many runs long, so it is a performance test: only
+    # `just perf-test` runs it, on a build that compiles the measurement.
+    if(blender_plugin_profile_dir AND METRICS_ENABLED)
+      flexible_drawing_add_test(
+        NAME flexible_drawing.realtime_plane_latency
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_realtime_plane_latency.py"
+          --realtime-plane $<TARGET_FILE:flexible_drawing_realtime_plane>
+          --blender "${BLENDER_PLUGIN_EXECUTABLE}"
+          --extension-dir "${CMAKE_CURRENT_SOURCE_DIR}/../extension"
+          --protocol-dir "${blender_plugin_profile_dir}"
+          --wheel-dir "${BLENDER_PLUGIN_WHEEL_DIR}"
+          --build-type "$<CONFIG>"
+          --budget "${CMAKE_CURRENT_SOURCE_DIR}/realtime_plane_latency_budget.json"
+          --output "${CMAKE_CURRENT_BINARY_DIR}/realtime_plane_latency.json"
+          --input synthetic
+        LABELS blender integration realtime_plane drawing performance
+        TIMEOUT 900
+        SEED 0
+        SKIP_RETURN_CODE 77
+        FIXTURES_REQUIRED flexible_drawing_test_environment)
+      set_tests_properties(flexible_drawing.realtime_plane_latency PROPERTIES RUN_SERIAL TRUE)
     endif()
   endif()
 endif()

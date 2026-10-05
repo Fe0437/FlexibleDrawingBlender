@@ -15,6 +15,8 @@ Read these pages in order:
 - [Developer commands](DEVELOPER_COMMANDS.md) covers packaging and manual use.
 - [Test strategy](TEST_STRATEGY.md) explains the checks that require Blender
   and the checks that do not.
+- [Manual checks](MANUAL_CHECKS.md) explains the checks that draw in the
+  Realtime Plane, by hand or with posted pointer events.
 - The repository's `extension/README.md` documents the Python bridge and its
   current operations.
 
@@ -30,4 +32,5 @@ PACKAGE_MAP
 API_GUIDELINES
 DEVELOPER_COMMANDS
 TEST_STRATEGY
+MANUAL_CHECKS
 ```

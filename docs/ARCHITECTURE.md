@@ -13,13 +13,14 @@ Blender UI
 ```
 
 `extension/presentation` is the `presentation.blender` frontend. It owns native
-Blender operators, workspace toolbar tools, dockable panels, properties,
+Blender operators, dockable panels, properties,
 resource and layer views, and the custom node-editor projection. It renders the
 platform-independent UI schema using Blender widgets; it does not own document
 or graph rules. The schema binds to state, actions, and capabilities owned by
 their existing packages.
-`extension/host` translates Blender events and persistent data into host-neutral
-values. `extension/abi` loads and calls the native library and never imports
+`extension/host` translates Blender's persistent data into host-neutral values.
+Blender reads no pen input and paints nothing: the Realtime Plane does both, and
+Blender shows its canvas as an image. `extension/abi` loads and calls the native library and never imports
 `bpy`. `extension/realtime_plane` is the client of the external Realtime Plane:
 it starts or finds the process, keeps a session with it over the shared profile,
 and never imports `bpy` either. `fd_plugin` reserves native implementation
@@ -55,6 +56,6 @@ that receives the input applies the change locally at a safe boundary and
 publishes the effective revision. Blender updates the active state only from
 that revision; a delayed or disconnected peer cannot stall drawing.
 
-Document and receiver handles are engine-owned. Blender stores stable identity
+Document handles are engine-owned. Blender stores stable identity
 values, not native pointers. A host must stop using every table and handle after
 the engine shuts down.

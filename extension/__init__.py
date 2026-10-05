@@ -8,7 +8,7 @@ What lives where, and which way the dependencies point:
 
     __init__          composition: owns the engine and the Realtime Plane link
       ├── presentation/     operators, panels and the UI projected from the engine's schema
-      ├── host/             document, receiver, input, viewport, geometry, USD, and Hydra bindings
+      ├── host/             document, canvas, geometry, USD, and Hydra bindings
       ├── realtime_plane/   the host-neutral Realtime Plane client; never imports bpy
       └── abi/              the host-neutral native-engine client; never imports bpy
 
@@ -39,7 +39,6 @@ from .abi import (
 )
 from .host import document_binding as _documentBinding
 from .host import hydra as _hydra
-from .host import receiver_binding as _receiverBinding
 from .presentation import realtime_plane as _realtimePlanePresentation
 from .realtime_plane.link import RealtimePlaneLink
 
@@ -49,13 +48,6 @@ _engine: EngineBridge | None = None
 # The link to the Realtime Plane, owned here for the same lifetime. It outlives nothing: disabling
 # the add-on lets go of the Realtime Plane, which goes on running for the next Blender.
 _realtimePlane: RealtimePlaneLink | None = None
-# Whether Blender itself hosts a painting receiver, which is what makes the paint tool exist.
-#
-# The Realtime Plane is the primary canvas and owns its native input; Blender's own editors are the
-# optional alternative. A deployment that only drives the external canvas sets this False and gets
-# no in-process canvas and no paint tool, rather than a tool that would send pen events nothing
-# asked for.
-_IN_PROCESS_RECEIVER_SELECTED = True
 # Published into Blender's driver namespace so a .blend, a script, or a support request can read
 # which engine build is loaded without importing anything.
 _namespaceKey = "flexible_drawing_engine_version"
@@ -147,7 +139,6 @@ def register() -> None:
         link.Reattach()
         _presentation.SetEngine(engine)
         _presentation.SetRealtimePlane(link)
-        _presentation.SelectInProcessReceiver(_IN_PROCESS_RECEIVER_SELECTED)
         _presentation.register()
         _realtimePlanePresentation.Watch()
     except Exception:
@@ -156,7 +147,6 @@ def register() -> None:
         _hydra.UnregisterEngines(bpy, _hydraClasses)
         _hydraClasses = ()
         _hydraFingerprint = None
-        _presentation.SelectInProcessReceiver(False)
         _presentation.SetRealtimePlane(None)
         _presentation.SetEngine(None)
         engine.Shutdown()
@@ -194,11 +184,7 @@ def unregister() -> None:
             _hydra.UnregisterEngines(bpy, _hydraClasses)
             _hydraClasses = ()
             _hydraFingerprint = None
-            _presentation.SelectInProcessReceiver(False)
             _presentation.SetEngine(None)
-            # Receivers die with the engine either way; closing them first keeps shutdown the exact
-            # mirror of what opened them.
-            _receiverBinding.CloseAll(_engine)
             _engine.Shutdown()
     finally:
         bpy.app.driver_namespace.pop(_namespaceKey, None)

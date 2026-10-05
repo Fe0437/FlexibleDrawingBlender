@@ -1,11 +1,12 @@
 # Flexible Drawing for Blender
 
 This extension lets Blender load and control the Flexible Drawing engine.
-Blender supplies the user interface, pointer events, and host data. The native
-engine owns drawing documents and processes strokes.
+Blender supplies the user interface and host data. The Realtime Plane, a
+separate program, reads the pen and paints. The native engine owns drawing
+documents and describes the UI.
 
 Use the [glossary](../../../docs/GLOSSARY.md) for the meaning of
-*document*, *tool*, *stroke*, *brush*, *dab*, *canvas*, and *receiver*.
+*document*, *tool*, *stroke*, *brush*, *dab*, and *canvas*.
 
 ## What works today
 
@@ -14,19 +15,22 @@ The extension can:
 - start and stop the native engine;
 - open the canvas: start the Realtime Plane, the external window that reads the
   pen itself, or find the one already running, and stop it on request;
+- show what is painted in the Realtime Plane as a Blender image, **Flexible
+  Drawing Canvas**, updated tile by tile while the stroke goes on. It is a copy:
+  the Realtime Plane owns the canvas, and the image is rebuilt from it whenever
+  Blender reconnects;
+- show the canvas on an object: select it and choose **Use Canvas in Material**.
+  Its material gets an image texture bound to the canvas. The file keeps only
+  that binding; after reopening the file, or deleting the image, the material
+  shows the canvas again as soon as the Realtime Plane sends it;
 - show the engine's tool settings in **Properties → Scene**, change them, and
   mark each change as pending until the Realtime Plane reports it in effect;
-- create a document and save its identity in a `.blend` file;
-- as an optional in-process alternative, paint in a Blender Image Editor or 3D
-  View window and report the canvas revision accepted by the receiver.
+- create a document and save its identity in a `.blend` file.
 
 The Realtime Plane outlives Blender. Quitting Blender, or Blender crashing,
 leaves it painting; the next Blender finds it again. Only **Stop Canvas** ends
 it. A tool chosen in Blender takes effect when the pen next touches the canvas,
 because a stroke keeps the tool it started with; until then it shows as pending.
-
-The in-process canvas records changed tiles but does not create or display
-pixels, and pointer input in the 3D View is not implemented.
 
 ## Build and open the extension
 
@@ -58,15 +62,6 @@ the iceoryx2 wheels in the package. Blender's extension manager installs those
 wheels when it installs the package. Manual and debugger sessions use that same
 installation path.
 
-To paint inside Blender instead, choose **Blender Image Editor (in-process)**,
-then **Flexible Drawing** in the Image Editor toolbar, and drag. Tablet positions saved between Blender events are sent with the measured
-position that follows them, so the extension crosses the native boundary once
-for a group of samples rather than once for every position.
-
-Blender creates sidebar tabs only after an editor has drawn once. A newly
-opened window may therefore need a short moment before the Flexible Drawing tab
-appears.
-
 ## Use a library from an existing build
 
 During native development, point the extension at a built library:
@@ -90,31 +85,11 @@ The `abi/` package contains no `bpy` import, so it can also be used from a plain
 Python process:
 
 ```python
-from flexible_drawing.abi import EngineBridge, FD_RECEIVER_ORIGIN_MEASURED
+from flexible_drawing.abi import EngineBridge
 
 with EngineBridge.Open(log=print) as engine:
     document = engine.Documents.Create("Untitled")
-
-    receiver = engine.Receivers.Create(
-        seed=42,
-        tileExtent=64,
-        maximumBatchSamples=64,
-    )
-    engine.Receivers.BeginContact(receiver.ReceiverId, contactId=1)
-
-    batch = engine.Receivers.Batch()
-    batch.Append(
-        x=0.0,
-        y=0.0,
-        pressure=0.5,
-        timeNanoseconds=1,
-        sequence=1,
-        origin=FD_RECEIVER_ORIGIN_MEASURED,
-    )
-    result = engine.Receivers.Submit(receiver.ReceiverId, 1, 1, batch)
-
-    print(result.Revision, result.CommittedSequence)
-    engine.Receivers.EndContact(receiver.ReceiverId, 1)
+    print(document.DocumentId, document.Revision, document.LayerCount)
     engine.Documents.Close(document.DocumentId)
 ```
 
@@ -126,15 +101,6 @@ Important rules:
 - Do not call an interface after its engine has shut down.
 - A failed call raises `EngineError`; `EngineError.Status` contains the native
   status code when the call reached the engine.
-- Send input in batches. Reuse one batch and call `Clear` between submissions.
-- Only `x` and `y` are required. Omitted pressure, time, sequence, and origin
-  use the defaults documented by the C interface.
-- `InputBatch.Borrowing` lets the engine read compatible buffers that the host
-  already owns. The engine does not retain those buffers after the call.
-- A receiver is one painting session, and a contact is one stroke within that
-  session. Open and close both explicitly.
-- A receiver cannot yet target a document or layer. Do not make persistent
-  behavior depend on this temporary limitation.
 
 ## Drive the Realtime Plane from Python
 
@@ -175,14 +141,11 @@ Important rules:
 | `__init__.py` | Starts and stops the extension, its single engine and its Realtime Plane link. |
 | `presentation/document.py` | Canvas and document buttons and the Scene properties panel. |
 | `presentation/realtime_plane.py` | Open and Stop Canvas, the preference, and the timer that follows the link. |
+| `presentation/canvas_image.py` | The canvas as a Blender image, updated from the timer and made again when lost. |
+| `presentation/canvas_material.py` | Use Canvas in Material: binds the canvas into the active object's material. |
 | `presentation/ui_projection.py` | Panels and properties made from the engine's UI schema. |
-| `presentation/viewport.py` | Optional in-process viewport windows and sidebars. |
-| `presentation/stroke.py` | Freehand operator and Image Editor toolbar tool. |
 | `host/document_binding.py` | Stores engine document identity in Blender data. |
-| `host/input.py` | Converts one Blender event to engine input values. |
-| `host/input_source.py` | Collects and submits one contact in bounded batches. |
-| `host/receiver_binding.py` | Owns the painting receiver associated with a scene. |
-| `host/viewport.py` | Opens editor windows and converts 2D pointer coordinates. |
+| `host/canvas_binding.py` | Marks material nodes with the canvas they show, and points them at it again. |
 | `host/geometry.py` | Converts Blender geometry to and from plain buffers. |
 | `host/geometry_sync.py` | Tracks changed geometry regions and revisions. |
 | `host/usd.py` | Checks Blender's bundled OpenUSD installation. |

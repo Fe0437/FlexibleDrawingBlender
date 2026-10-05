@@ -15,9 +15,10 @@ import logging
 
 import bpy
 
-from ..host import document_binding, receiver_binding
-from ..realtime_plane.link import RealtimePlaneLink
-from . import Engine, InProcessReceiverSelected, RealtimePlane
+from ..host import document_binding
+from ..realtime_plane.link import LinkState, RealtimePlaneLink
+from . import Engine, RealtimePlane, canvas_image
+from .canvas_material import AddCanvasPlaneOperator, UseCanvasInMaterialOperator
 from .realtime_plane import OpenCanvasOperator, Status, StopCanvasOperator
 
 # Every operator here has the same three parts: `poll` decides whether the button can be pressed,
@@ -74,7 +75,6 @@ class CloseDocumentOperator(bpy.types.Operator):
     def execute(self, context: object) -> set[str]:
         binding = document_binding.Read(context.scene)
         engine = Engine()
-        receiver_binding.Close(engine, context.scene)
         engine.Documents.Close(binding.DocumentId)
         document_binding.Clear(context.scene)
         _logger.info("[blender] document closed; id=%d", binding.DocumentId)
@@ -99,14 +99,13 @@ class DocumentPanel(bpy.types.Panel):
         link = RealtimePlane()
         if link is not None:
             column.label(text=Status(link))
-        # Painting inside Blender's own editors is the optional alternative, and it says so.
-        if InProcessReceiverSelected():
-            column.label(text="Optional in-process receivers, painting inside Blender:")
-            # The operator's identifier rather than the class, because `presentation.viewport`
-            # imports this module and importing it back would be a cycle.
-            viewport = "flexible_drawing.viewport_open"
-            column.operator(viewport, text="Blender Image Editor (in-process)").SpaceType = "IMAGE_EDITOR"
-            column.operator(viewport, text="Blender 3D View (in-process)").SpaceType = "VIEW_3D"
+            if link.State is LinkState.CONNECTED:
+                column.label(text=canvas_image.Status(link))
+                row = column.row()
+                row.operator(canvas_image.ShowCanvasOperator.bl_idname)
+                row.operator(AddCanvasPlaneOperator.bl_idname)
+                column.operator(UseCanvasInMaterialOperator.bl_idname)
         column.operator(CreateDocumentOperator.bl_idname)
-        column.operator(InspectDocumentOperator.bl_idname)
+        if bpy.app.debug:  # a developer's check of the stored identity; Blender started with --debug
+            column.operator(InspectDocumentOperator.bl_idname)
         column.operator(CloseDocumentOperator.bl_idname)

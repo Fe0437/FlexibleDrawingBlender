@@ -42,6 +42,10 @@ class FakeLink:
         self.Calls: list[str] = []
         self.Changed = False
         self.OpenError: OSError | None = None
+        # A session that has received no canvas yet, so there is no canvas image to show.
+        self.Session = types.SimpleNamespace(
+            Id=1, Mirror=types.SimpleNamespace(Image=None, Tiles={}, CanvasRevision=0), ChangedTiles=set()
+        )
         type(self).created.append(self)
 
     @staticmethod

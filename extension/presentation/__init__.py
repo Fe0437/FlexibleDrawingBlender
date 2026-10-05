@@ -21,11 +21,6 @@ order returned, and unregisters them with the rest.
 The add-on also lends the Realtime Plane link the same way: `SetRealtimePlane` and `RealtimePlane`.
 The projected UI does not ask for the link by name: it asks for its `BindingTarget`, whatever the UI's
 bindings act on, which today is the Realtime Plane.
-
-A class that says `RequiresInProcessReceiver = True` is registered only when Blender is hosting a
-painting receiver of its own. The external Realtime Plane owns its native input, so its canvas must
-not acquire a Blender paint tool that would send it pen events it never asked for; leaving the class
-unregistered is what makes that structural rather than a rule somebody has to remember.
 """
 
 from __future__ import annotations
@@ -51,9 +46,7 @@ _REGISTRABLE_TYPE_NAMES = (
 
 _engine: object | None = None
 _realtimePlane: object | None = None
-_inProcessReceiver = False
 _registered: list[type] = []
-_registeredTools: list[type] = []
 
 
 def SetEngine(engine: object | None) -> None:
@@ -86,22 +79,6 @@ def BindingTarget() -> object | None:
     schema gives each binding.
     """
     return _realtimePlane
-
-
-def SelectInProcessReceiver(selected: bool) -> None:
-    """Say whether Blender itself hosts a painting receiver. Set before `register`."""
-    global _inProcessReceiver
-    _inProcessReceiver = selected
-
-
-def InProcessReceiverSelected() -> bool:
-    """Whether Blender hosts a painting receiver of its own."""
-    return _inProcessReceiver
-
-
-def _selectable(found: type) -> bool:
-    """Whether this class may be registered given what the add-on is hosting."""
-    return _inProcessReceiver or not getattr(found, "RequiresInProcessReceiver", False)
 
 
 def _registrableBases() -> tuple[type, ...]:
@@ -140,7 +117,7 @@ def RegisteredClasses() -> list[type]:
     bases = _registrableBases()
     if not bases:
         return []
-    return [found for found in _declaredClasses() if issubclass(found, bases) and _selectable(found)]
+    return [found for found in _declaredClasses() if issubclass(found, bases)]
 
 
 def GeneratedClasses() -> list[type]:
@@ -149,35 +126,21 @@ def GeneratedClasses() -> list[type]:
     for module in _modules():
         generate = getattr(module, "GeneratedClasses", None)
         if callable(generate):
-            classes += [found for found in generate() if _selectable(found)]
+            classes += generate()
     return classes
-
-
-def RegisteredTools() -> list[type]:
-    """The toolbar tools, which Blender adds through a different call than every other class."""
-    base = getattr(bpy.types, "WorkSpaceTool", None)
-    if base is None:
-        return []
-    return [found for found in _declaredClasses() if issubclass(found, base) and _selectable(found)]
 
 
 def register() -> None:
     """Register everything in this package with Blender.
 
-    Written classes first, then generated ones, which may name a written operator, then tools: a
-    tool names the operator it runs, so that operator has to exist.
+    Written classes first, then generated ones, which may name a written operator.
     """
     for found in [*RegisteredClasses(), *GeneratedClasses()]:
         bpy.utils.register_class(found)
         _registered.append(found)
-    for tool in RegisteredTools():
-        bpy.utils.register_tool(tool, separator=True, group=False)
-        _registeredTools.append(tool)
 
 
 def unregister() -> None:
     """Remove exactly what `register` added, in reverse."""
-    while _registeredTools:
-        bpy.utils.unregister_tool(_registeredTools.pop())
     while _registered:
         bpy.utils.unregister_class(_registered.pop())

@@ -18,7 +18,7 @@ FD_UI_SCHEMA_STATUS_UNRESOLVED = 1200
 # Interfaces
 # Names and generations for fd_engine_get_interface.
 FD_INTERFACE_UI_SCHEMA = "ui_schema"
-FD_INTERFACE_UI_SCHEMA_VERSION = 2
+FD_INTERFACE_UI_SCHEMA_VERSION = 1
 
 
 class fd_ui_schema_api(ctypes.Structure):

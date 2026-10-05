@@ -9,9 +9,6 @@ Python loads the native engine through the versioned C interface. Engine
 identities and revisions may be stored in Blender data, but Blender objects and
 pointers never enter engine schemas.
 
-The in-process input provider reads Blender events only. It does not forward
-events from the Realtime Plane, which owns its own input source.
-
 The Python implementations are packaged under `extension/host/`. Blender UI
 classes live under `extension/presentation/`. The
 [package map](../../../docs/PACKAGE_MAP.md) gives the exact mapping.

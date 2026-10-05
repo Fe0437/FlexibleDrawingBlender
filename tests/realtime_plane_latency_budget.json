@@ -1,0 +1,50 @@
+{
+  "about": "Predeclared before the comparison it judges; the regression limits come from the profile build's baseline. docs/TEST_STRATEGY.md, \"Realtime Plane latency comparison\", says how each number was chosen.",
+  "fingerprint": {
+    "machine": "MacBookPro18,1",
+    "processor": "Apple M1 Pro",
+    "system": "macOS 26.6.2",
+    "display": {
+      "refresh_hz": 120,
+      "pixel_density": 1,
+      "width": 1728,
+      "height": 1117
+    },
+    "presentation": "CAMetalLayer paced by CAMetalDisplayLink, newest frame each refresh (PresentTiming::AsSoonAsReady)",
+    "input": "synthetic pointer events at 240 Hz",
+    "build": "RelWithDebInfo",
+    "blender": "5.2.1"
+  },
+  "equivalence": {
+    "stages": [
+      "input_to_executed",
+      "input_to_shown"
+    ],
+    "p50": {
+      "relative": 0.05,
+      "absolute_ns": 500000
+    },
+    "p99": {
+      "relative": 0.1,
+      "absolute_ns": 1000000
+    }
+  },
+  "regression_keys": [
+    "machine",
+    "display",
+    "presentation",
+    "input",
+    "build"
+  ],
+  "regression": {
+    "input_to_executed": {
+      "p50_ns": 46000,
+      "p99_ns": 262000
+    },
+    "input_to_shown": {
+      "p50_ns": 24223000,
+      "p99_ns": 64593000
+    }
+  },
+  "control_to_activation_p99_s": 0.034
+}

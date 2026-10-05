@@ -9,6 +9,6 @@ add_subdirectory(fd_plugin)
 flexible_drawing_add_boundary(flexible_drawing_blender_plugin FlexibleDrawing::BlenderPlugin
   FlexibleDrawing::UseCases FlexibleDrawing::Presentation FlexibleDrawing::HostBlender
   FlexibleDrawing::HostAbi FlexibleDrawing::HostBlenderUsd
-  FlexibleDrawing::HostBlenderHydra FlexibleDrawing::CanvasProviderOnBlender
+  FlexibleDrawing::HostBlenderHydra
   FlexibleDrawing::RealtimePlaneProtocol
 )

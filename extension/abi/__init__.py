@@ -13,8 +13,8 @@ another Python host unchanged. The layering matches the engine's own `src/host/a
 | `reflected`     | decoding the engine's self-describing values by name           | when the format does |
 | `interfaces/`   | one module per engine interface — **new interfaces go here**   | often              |
 
-The records, the constants, and the frozen value types a host holds (`DocumentSnapshot`,
-`InputSample`, `ReceiverSnapshot`) are all generated from the headers, field documentation included.
+The records, the constants, and the frozen value types a host holds, such as `DocumentSnapshot`, are
+all generated from the headers, field documentation included.
 Only behaviour is written by hand.
 
 Adding an interface means one new module in `interfaces/`. Nothing else changes: `registry` finds
@@ -45,35 +45,10 @@ from .generated import (
     FD_LOG_SEVERITY_INFO,
     FD_LOG_SEVERITY_TRACE,
     FD_LOG_SEVERITY_WARNING,
-    FD_RECEIVER_CONTACT_CANCELLED,
-    FD_RECEIVER_CONTACT_FINISHED,
-    FD_RECEIVER_INPUT_COALESCING,
-    FD_RECEIVER_INPUT_CORRECTION,
-    FD_RECEIVER_INPUT_ERASER,
-    FD_RECEIVER_INPUT_HOVER,
-    FD_RECEIVER_INPUT_PREDICTION,
-    FD_RECEIVER_INPUT_PRESSURE,
-    FD_RECEIVER_INPUT_TILT,
-    FD_RECEIVER_INPUT_TIMESTAMP,
-    FD_RECEIVER_INPUT_TWIST,
-    FD_RECEIVER_MAX_COUNT,
-    FD_RECEIVER_MAX_SAMPLES,
-    FD_RECEIVER_ORIGIN_COALESCED,
-    FD_RECEIVER_ORIGIN_CORRECTED,
-    FD_RECEIVER_ORIGIN_MEASURED,
-    FD_RECEIVER_ORIGIN_PREDICTED,
-    FD_RECEIVER_STATUS_BUSY,
-    FD_RECEIVER_STATUS_NO_CONTACT,
-    FD_RECEIVER_STATUS_OUT_OF_ORDER,
-    FD_RECEIVER_STATUS_REJECTED,
-    FD_RECEIVER_STATUS_UNKNOWN,
     FD_UI_SCHEMA_STATUS_UNRESOLVED,
     DocumentSnapshot,
-    InputSample,
-    ReceiverSnapshot,
 )
 from .interfaces.document import DocumentInterface
-from .interfaces.receiver import InputBatch, ReceiverInterface
 from .interfaces.ui_schema import UiSchema, UiSchemaInterface
 from .library import LIBRARY_OVERRIDE, DiscoverLibrary, LibraryName, LoadLibrary
 from .reflected import Decode, Record
@@ -93,28 +68,6 @@ __all__ = [
     "FD_LOG_SEVERITY_INFO",
     "FD_LOG_SEVERITY_TRACE",
     "FD_LOG_SEVERITY_WARNING",
-    "FD_RECEIVER_CONTACT_CANCELLED",
-    "FD_RECEIVER_CONTACT_FINISHED",
-    "FD_RECEIVER_INPUT_COALESCING",
-    "FD_RECEIVER_INPUT_CORRECTION",
-    "FD_RECEIVER_INPUT_ERASER",
-    "FD_RECEIVER_INPUT_HOVER",
-    "FD_RECEIVER_INPUT_PREDICTION",
-    "FD_RECEIVER_INPUT_PRESSURE",
-    "FD_RECEIVER_INPUT_TILT",
-    "FD_RECEIVER_INPUT_TIMESTAMP",
-    "FD_RECEIVER_INPUT_TWIST",
-    "FD_RECEIVER_MAX_COUNT",
-    "FD_RECEIVER_MAX_SAMPLES",
-    "FD_RECEIVER_ORIGIN_COALESCED",
-    "FD_RECEIVER_ORIGIN_CORRECTED",
-    "FD_RECEIVER_ORIGIN_MEASURED",
-    "FD_RECEIVER_ORIGIN_PREDICTED",
-    "FD_RECEIVER_STATUS_BUSY",
-    "FD_RECEIVER_STATUS_NO_CONTACT",
-    "FD_RECEIVER_STATUS_OUT_OF_ORDER",
-    "FD_RECEIVER_STATUS_REJECTED",
-    "FD_RECEIVER_STATUS_UNKNOWN",
     "FD_UI_SCHEMA_STATUS_UNRESOLVED",
     "LIBRARY_OVERRIDE",
     "Decode",
@@ -123,13 +76,9 @@ __all__ = [
     "DocumentSnapshot",
     "EngineBridge",
     "EngineError",
-    "InputBatch",
-    "InputSample",
     "LibraryName",
     "LoadLibrary",
     "LogSink",
-    "ReceiverInterface",
-    "ReceiverSnapshot",
     "Record",
     "UiSchema",
     "UiSchemaInterface",

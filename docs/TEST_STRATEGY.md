@@ -104,9 +104,10 @@ transport or IPC code is compiled into the pen-to-photon sources.
 
 It is a `performance` test: `just perf-test` runs it on the `profile` build. It
 needs a process allowed to post events (macOS: Accessibility) and an unlocked
-screen; otherwise it skips. Its numbers are kept in `realtime_plane_latency.json` in the build tree;
-on other hardware, where the regression limits are not judged, that file is the
-baseline to derive a new budget from. Only a build with `METRICS_ENABLED` compiles the measurement; the regression
+screen; otherwise it skips. Its numbers and the commit measured are kept in
+`realtime_plane_latency.json` in the build tree. `just perf-store latency` derives the
+budget's regression limits from that file, on a clean commit only, and the budget names
+that commit. Only a build with `METRICS_ENABLED` compiles the measurement; the regression
 limits were recorded on the `profile` build that `just perf-test` uses.
 
 ## Canvas in Blender

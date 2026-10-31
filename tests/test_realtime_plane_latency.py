@@ -21,8 +21,8 @@ declared before this comparison ran:
   limits derived from the baseline's own run-to-run spread;
 - control: Blender's control to activation p99 may not exceed the budget.
 
-`--output FILE` keeps every run's numbers and the environment. On other hardware, where the
-regression limits are not judged, that file is the baseline a new budget is derived from. The test
+`--output FILE` keeps every run's numbers, the environment and the commit measured. `just perf-store
+latency` derives the budget's regression limits from that file, and only from a clean commit. The test
 skips (77) when synthetic input cannot be posted.
 """
 
@@ -47,7 +47,7 @@ from drawing_input import INPUTS, DrawingInput
 HERE = Path(__file__).resolve().parent
 SKIP = 77
 WAYS = ("direct", "blender", "blender_stalled")
-STAGES = ("input_to_executed", "executed_to_submitted", "input_to_submitted", "input_to_shown")
+STAGES = ("input_to_written", "written_to_submitted", "input_to_submitted", "input_to_shown")
 START_TIMEOUT_S = 30.0
 SETTLE_S = 1.5
 
@@ -186,6 +186,21 @@ class Runner:
         return json.loads(report.read_text(encoding="utf-8")), controls
 
 
+def _source_state() -> dict:
+    """The commit of the outermost repository this file is in, and whether it holds no uncommitted change."""
+
+    def git(*arguments: str, directory: Path = HERE) -> str:
+        return subprocess.run(
+            ["git", "-C", str(directory), *arguments], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    root = Path(git("rev-parse", "--show-superproject-working-tree") or git("rev-parse", "--show-toplevel"))
+    return {
+        "commit": git("rev-parse", "HEAD", directory=root),
+        "clean": not git("status", "--porcelain", directory=root),
+    }
+
+
 def _judge(budget: dict, summaries: dict, controls: list[float], fingerprint: dict) -> list[str]:
     failures = []
     equivalence = budget["equivalence"]
@@ -204,7 +219,9 @@ def _judge(budget: dict, summaries: dict, controls: list[float], fingerprint: di
             for percentile, limit in limits.items():
                 measured = summaries["direct"][stage][percentile]
                 if measured > limit:
-                    failures.append(f"direct {stage} {percentile} {measured} ns > baseline limit {limit} ns")
+                    failures.append(
+                        f"direct {stage} {percentile} {measured} ns > limit {limit} ns of commit {budget['commit']}"
+                    )
     else:
         print("regression limits not judged: the budget was recorded on other hardware", file=sys.stderr)
     if controls:
@@ -260,6 +277,7 @@ def main() -> int:
     fingerprint = _fingerprint(args, reports["direct"][0]["display"])
     result = {
         "fingerprint": fingerprint,
+        **_source_state(),
         "runs": args.runs,
         "ways": summaries,
         "control_to_activation_s": sorted(controls),

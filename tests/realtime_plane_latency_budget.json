@@ -1,5 +1,6 @@
 {
   "about": "Predeclared before the comparison it judges; the regression limits come from the profile build's baseline. docs/TEST_STRATEGY.md, \"Realtime Plane latency comparison\", says how each number was chosen.",
+  "commit": "edc18e46e6956fb3d5f4d298fb0c33df4b6df592",
   "fingerprint": {
     "machine": "MacBookPro18,1",
     "processor": "Apple M1 Pro",
@@ -17,7 +18,7 @@
   },
   "equivalence": {
     "stages": [
-      "input_to_executed",
+      "input_to_written",
       "input_to_shown"
     ],
     "p50": {
@@ -37,13 +38,13 @@
     "build"
   ],
   "regression": {
-    "input_to_executed": {
-      "p50_ns": 46000,
-      "p99_ns": 262000
+    "input_to_written": {
+      "p50_ns": 60826,
+      "p99_ns": 189236
     },
     "input_to_shown": {
-      "p50_ns": 24223000,
-      "p99_ns": 64593000
+      "p50_ns": 27682407,
+      "p99_ns": 53057946
     }
   },
   "control_to_activation_p99_s": 0.034

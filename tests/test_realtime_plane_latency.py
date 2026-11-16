@@ -259,10 +259,12 @@ def main() -> int:
 
     reports: dict[str, list[dict]] = {way: [] for way in WAYS}
     controls: list[float] = []
+    loads: list[float] = []
     with tempfile.TemporaryDirectory(prefix="realtime-plane-latency-") as directory:
         runner = Runner(args, Path(directory))
         for index in range(args.runs):
             for way in WAYS:
+                loads.append(os.getloadavg()[0])
                 report, timed = runner.Run(way, index)
                 reports[way].append(report)
                 controls.extend(timed if way == "blender" else [])
@@ -279,6 +281,7 @@ def main() -> int:
         "fingerprint": fingerprint,
         **_source_state(),
         "runs": args.runs,
+        "machine_load_before_each_run": loads,
         "ways": summaries,
         "control_to_activation_s": sorted(controls),
     }

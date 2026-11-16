@@ -72,7 +72,6 @@ def fake_ui_schema() -> object:
                 "Control": control,
                 "Parent": parent,
                 "Bindings": bindings,
-                "Choices": choices,
             }
         )
 
@@ -154,6 +153,7 @@ class RecordingLayout:
         self.Operators: list[str] = parent.Operators if parent else []
         self.OperatorProperties: list[types.SimpleNamespace] = parent.OperatorProperties if parent else []
         self.Properties: list[tuple[str, str, bool]] = parent.Properties if parent else []
+        self.Sliders: list[str] = parent.Sliders if parent else []
         self.enabled = True
 
     def column(self) -> RecordingLayout:
@@ -168,8 +168,10 @@ class RecordingLayout:
     def label(self, *, text: str, icon: str = "NONE") -> None:
         self.Labels.append(text)
 
-    def prop(self, _data: object, name: str, text: str = "") -> None:
+    def prop(self, _data: object, name: str, text: str = "", slider: bool = False) -> None:
         self.Properties.append((name, text, self.enabled))
+        if slider:
+            self.Sliders.append(name)
 
     def operator(self, identifier: str, text: str | None = None) -> types.SimpleNamespace:
         self.Operators.append(identifier if text is None else f"{identifier} [{text}]")
@@ -397,7 +399,60 @@ class PluginTests(unittest.TestCase):
                 self.assertTrue(binding.Owner.Value and binding.Id.Value)
                 self.assertIn(binding.Role, {"State", "Action", "Capability"})
         choices = [element for element in schema.Elements if element.Control == "Choice"]
-        self.assertTrue(choices and all(element.Choices for element in choices))
+        self.assertTrue(choices)
+        # The session reports source-compatible choices; the host schema has no tool catalog.
+        self.assertTrue(all(not hasattr(element, "Choices") for element in choices))
+        self.assertTrue(any(element.Kind == "Editor" for element in schema.Elements))
+
+    def test_parameter_controls_are_described_by_the_engine(self) -> None:
+        module = self._LoadAbi()
+        bridge = module.EngineBridge.FromLibrary(module.LoadLibrary(self.library))
+        try:
+            schema = bridge.UiSchema.Describe()
+            models = [element for element in schema.Elements if getattr(element, "Setting", None) is not None]
+            # Each is a control of the editor that shows the active tool's settings.
+            self.assertTrue(models)
+            self.assertTrue(all(schema.Elements[model.Parent].Kind == "Editor" for model in models))
+            rules = {
+                model.Setting.Type: (
+                    model.Control,
+                    model.Setting.Value,
+                    None
+                    if model.Setting.Bounds is None
+                    else (model.Setting.Bounds.Minimum, model.Setting.Bounds.Maximum),
+                )
+                for model in models
+            }
+            # A person sees a whole number either way; an unsigned one is one in its own range, from zero.
+            self.assertEqual(
+                rules,
+                {
+                    "Scalar": ("Number", "Number", None),
+                    "Integer": ("Integer", "Integer", None),
+                    "UnsignedInteger": ("Integer", "Integer", ((0.0,), (float(2**64 - 1),))),
+                },
+            )
+        finally:
+            bridge.Shutdown()
+
+    def test_the_engine_describes_words_and_number_presentations(self) -> None:
+        """An element's declared words, and an editor's number presentations, reach the host by name."""
+        module = self._LoadAbi()
+        bridge = module.EngineBridge.FromLibrary(module.LoadLibrary(self.library))
+        try:
+            schema = bridge.UiSchema.Describe()
+        finally:
+            bridge.Shutdown()
+        byId = {element.Id: element for element in schema.Elements}
+        selector = byId["painting.active_tool.selector"]
+        self.assertEqual(selector.Label, "Active tool")
+        self.assertTrue(selector.Help)
+        self.assertIsNone(byId["painting.workspace"].Label, "an element that declares no words leaves them to the host")
+        editor = byId["painting.active_tool.settings.group"]
+        presented = {setting.Setting: setting for setting in editor.NumberSettings}
+        self.assertEqual(presented["hardness"].Widget, "Slider")
+        self.assertEqual((presented["minimum_radius"].Step, presented["minimum_radius"].Precision), (0.5, 1))
+        self.assertTrue(all(not element.NumberSettings for element in schema.Elements if element.Kind != "Editor"))
 
     def test_a_self_describing_value_refuses_malformed_bytes(self) -> None:
         module = self._LoadAbi()

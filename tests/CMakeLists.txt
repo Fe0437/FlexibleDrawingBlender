@@ -5,7 +5,7 @@
 # own switches under its own names. Whoever adds this directory says so in its terms; these tests
 # can be added without the extension's own directory, so they are declared here.
 set(BLENDER_PLUGIN_EXECUTABLE "" CACHE FILEPATH "Supported Blender executable these smokes drive")
-option(BLENDER_PLUGIN_INTERACTIVE "Run the smoke that opens a window and simulates pointer input" OFF)
+option(BLENDER_PLUGIN_INTERACTIVE "Run checks that take the interactive desktop and pointer" OFF)
 set(BLENDER_PLUGIN_WHEEL_DIR "" CACHE PATH "Python wheels, and their licence notices, the extension bundles")
 
 add_library(flexible_drawing_blender_ui_schema_fixture)
@@ -14,15 +14,21 @@ target_link_libraries(flexible_drawing_blender_ui_schema_fixture PUBLIC flexible
 flexible_drawing_set_warnings(flexible_drawing_blender_ui_schema_fixture)
 flexible_drawing_apply_enabled_sanitizers(flexible_drawing_blender_ui_schema_fixture)
 
-add_executable(flexible_drawing_blender_ui_schema_contract_test ui_schema_blender_contract.cpp)
+flexible_drawing_add_program(flexible_drawing_blender_ui_schema_contract_test blender_ui_schema_contract)
 target_link_libraries(flexible_drawing_blender_ui_schema_contract_test PRIVATE flexible_drawing_blender_ui_schema_fixture)
-flexible_drawing_set_warnings(flexible_drawing_blender_ui_schema_contract_test)
-flexible_drawing_apply_enabled_sanitizers(flexible_drawing_blender_ui_schema_contract_test)
 
 flexible_drawing_add_test(
   NAME flexible_drawing.blender_ui_schema_contract
   COMMAND $<TARGET_FILE:flexible_drawing_blender_ui_schema_contract_test>
   LABELS unit contract blender presentation schema
+  TIMEOUT 30
+  SEED 0
+  FIXTURES_REQUIRED flexible_drawing_test_environment)
+
+flexible_drawing_add_test(
+  NAME flexible_drawing.blender_tool_check_contract
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_tool_check_contract.py"
+  LABELS unit contract blender
   TIMEOUT 30
   SEED 0
   FIXTURES_REQUIRED flexible_drawing_test_environment)
@@ -201,6 +207,28 @@ if(BLENDER_PLUGIN_EXECUTABLE)
       SKIP_RETURN_CODE 77
       FIXTURES_REQUIRED flexible_drawing_test_environment)
     set_tests_properties(flexible_drawing.blender_canvas_check PROPERTIES RUN_SERIAL TRUE)
+
+    # This also captures the displayed hover layer. Opt in only with a person at the unlocked
+    # desktop; permissions are checked without prompting and a missing one skips the test.
+    if(BLENDER_PLUGIN_INTERACTIVE)
+      flexible_drawing_add_test(
+        NAME flexible_drawing.blender_tool_check
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_tools_in_blender.py"
+          --blender "${BLENDER_PLUGIN_EXECUTABLE}"
+          --package-script "${PROJECT_SOURCE_DIR}/tools/blender/package.py"
+          --extension-dir "${CMAKE_CURRENT_SOURCE_DIR}/../extension"
+          --library $<TARGET_FILE:flexible_drawing_host_abi>
+          --wheel-dir "${BLENDER_PLUGIN_WHEEL_DIR}"
+          --build-dir "${CMAKE_BINARY_DIR}"
+          --output "${CMAKE_CURRENT_BINARY_DIR}/blender_tool_check.json"
+          --keep "${CMAKE_CURRENT_BINARY_DIR}/blender_tool_check_artifacts"
+        LABELS blender integration realtime_plane drawing interactive
+        TIMEOUT 600
+        SEED 0
+        SKIP_RETURN_CODE 77
+        FIXTURES_REQUIRED flexible_drawing_test_environment)
+      set_tests_properties(flexible_drawing.blender_tool_check PROPERTIES RUN_SERIAL TRUE)
+    endif()
 
     # The same Realtime Plane launched directly and by Blender, judged against the latency budget
     # declared before the comparison. Slow and many runs long, so it is a performance test: only

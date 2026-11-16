@@ -19,10 +19,10 @@ the Realtime Plane already replaced. Whoever owns the session opens a new one wi
 
 ```python
 session = RealtimePlaneSession(Iceoryx2Channels(endpoints), sessionId)
-session.Request("presentation.tool_ui", "pressure_brush.set_hardness", 0.8)
-while session.Pending("presentation.tool_ui", "pressure_brush.set_hardness") is not None:
+session.Request("freehand.pressure_brush", "hardness", 0.8)
+while session.Pending("freehand.pressure_brush", "hardness") is not None:
     session.Advance()
-session.Effective("presentation.tool_ui", "pressure_brush.hardness")  # 0.8
+session.Effective("freehand.pressure_brush", "hardness")  # 0.8
 ```
 """
 
@@ -36,7 +36,7 @@ import time
 from .profile import Frames, Profile
 
 #: A value or an identity, such as a tool, a person picked.
-ActionValue = float | tuple[float, ...] | str
+ActionValue = Profile.PortValue | str
 
 _ACKNOWLEDGEMENT_BODY = struct.Struct("<HQ")
 # An open request can be lost: sent before the Realtime Plane created its server, it reaches nobody.
@@ -86,6 +86,8 @@ class RealtimePlaneSession:
         self._replySeconds = replySeconds
         self._clock = clock
         self._effective: dict[tuple[str, str], ActionValue] = {}
+        self._choices: dict[tuple[str, str], tuple[str, ...]] = {}
+        self._parameters: dict[tuple[str, str], tuple] = {}
         self._queued: dict[tuple[str, str], ActionValue] = {}
         self._sent: dict[tuple[str, str], tuple[int, ActionValue]] = {}
         self._actionSequence = 0
@@ -140,6 +142,14 @@ class RealtimePlaneSession:
         if self.State is SessionState.OPEN and self._reply is None:
             self._sendNext()
         return changed
+
+    def Choices(self, owner: str, state: str) -> tuple[str, ...]:
+        """Session-supported identities for a choice, never the host's local catalog."""
+        return self._choices.get((owner, state), ())
+
+    def Parameters(self, owner: str, state: str) -> tuple:
+        """Published settings of the effective identity, with their exact values and bounds."""
+        return self._parameters.get((owner, state), ())
 
     def Close(self) -> None:
         """End the session, waiting briefly for the Realtime Plane to hear it. Safe to repeat."""
@@ -207,6 +217,11 @@ class RealtimePlaneSession:
             self._stateSequence = record.Sequence
             snapshot = Profile.DecodeToolState(record.Payload)
             self.ToolRevision = record.Revision
+            self._choices = {(entry.Owner, entry.State): entry.Choices for entry in snapshot.Identities}
+            self._parameters = {
+                (entry.Owner, entry.State): tuple(value for value in snapshot.Values if value.Owner == entry.Identity)
+                for entry in snapshot.Identities
+            }
             self._effective = {(entry.Owner, entry.State): entry.Identity for entry in snapshot.Identities}
             self._effective.update({(entry.Owner, entry.State): entry.Value for entry in snapshot.Values})
             applied = snapshot.AppliedActionSequence

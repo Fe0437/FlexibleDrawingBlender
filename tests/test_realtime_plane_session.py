@@ -80,6 +80,33 @@ class SessionTests(unittest.TestCase):
             profile.EncodeToolState(snapshot),
         )
 
+    def test_session_choices_and_parameters_follow_effective_tool(self) -> None:
+        opened = self._open()
+        profile = self.profile
+
+        def publish(sequence, identity, values):
+            snapshot = profile.ToolStateSnapshot(
+                0, (profile.IdentityState(OWNER, "active_tool", identity, ("tool.width", "tool.softness")),), values
+            )
+            self.channels.States.append(
+                self.frames.EncodeRecord(
+                    7,
+                    profile.SETTINGS.ToolStates.Stream,
+                    sequence,
+                    sequence,
+                    profile.SETTINGS.ToolStatePayload,
+                    profile.EncodeToolState(snapshot),
+                )
+            )
+            opened.Advance()
+
+        publish(1, "tool.width", (profile.ValueState("tool.width", "width", 3.0, (1.0, 20.0)),))
+        self.assertEqual(opened.Choices(OWNER, "active_tool"), ("tool.width", "tool.softness"))
+        self.assertEqual(opened.Parameters(OWNER, "active_tool")[0].State, "width")
+        publish(2, "tool.softness", (profile.ValueState("tool.softness", "softness", 0.5, (0.0, 1.0)),))
+        self.assertEqual(opened.Parameters(OWNER, "active_tool")[0].State, "softness")
+        self.assertIsNone(opened.Effective("tool.width", "width"))
+
     def _open(self, session: int = 7) -> object:
         self.channels.Replies.append(self._accept(session))
         opened = self.session.RealtimePlaneSession(self.channels, session, replySeconds=1.0, clock=lambda: self.now)

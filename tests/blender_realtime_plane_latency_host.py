@@ -24,9 +24,9 @@ import sys
 import time
 import types
 
-OWNER = "presentation.tool_ui"
-SET_HARDNESS = "pressure_brush.set_hardness"
-HARDNESS = "pressure_brush.hardness"
+OWNER = "freehand.pressure_brush"
+SET_HARDNESS = "hardness"
+HARDNESS = "hardness"
 HOST_TURN_S = 1.0 / 60.0
 REQUEST_EVERY_S = 0.25
 TIMEOUT_S = 30.0

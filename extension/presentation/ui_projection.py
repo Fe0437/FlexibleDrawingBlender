@@ -19,19 +19,23 @@ sends the control's action binding, and the control shows the state binding's ef
 value that has been requested and has not taken effect is marked pending, with the value in effect
 beside it, because a stroke in progress keeps the tool it started with.
 
-The schema carries meaning, not appearance, so labels come from identities: a control is named by
-the last part of the state it shows (`pressure_brush.hardness` is "Hardness"), and a container by
-the part before its kind (`painting.active_tool.section` is "Active Tool"). There are no ranges or
-units yet, so numbers are unbounded fields.
+The schema carries meaning, not appearance. An element may declare an English label and help text,
+shown as given. One that declares no label is named from its identity: a control by the last part of
+the state it shows (`pressure_brush.hardness` is "Hardness"), and a container by the part before its
+kind (`painting.active_tool.section` is "Active Tool"). An editor may ask for a slider, a step or a
+precision for a number setting it shows; they are hints, applied where a Blender property has them.
+Parameter ranges come from the effective tool; units are not currently published.
 """
 
 import logging
+import math
 import struct
 from typing import NamedTuple
 
 import bpy
 
 from ..abi import EngineError, Record, UiSchema
+from ..realtime_plane.profile import Profile
 from . import BindingTarget, Engine
 
 _logger = logging.getLogger("flexible_drawing")
@@ -50,6 +54,8 @@ _SINGLE = struct.Struct("<f")
 _SURFACE, _SECTION, _CONTROL = "Surface", "Section", "Control"
 _COMMAND, _BOOLEAN, _INTEGER, _NUMBER, _CHOICE, _TEXT = "Command", "Boolean", "Integer", "Number", "Choice", "Text"
 _STATE, _ACTION = "State", "Action"
+_SLIDER = "Slider"
+_INTEGER_LOWEST, _INTEGER_HIGHEST = -(2**31), 2**31 - 1  # what a Blender integer field holds
 
 
 class ProjectedControl(NamedTuple):
@@ -60,7 +66,11 @@ class ProjectedControl(NamedTuple):
     Property: str | None  #: the values group's property, or None when the role has no value
     State: Record | None  #: the state binding: `Owner.Value`, `Id.Value`, `Role`, `Value`
     Action: Record | None
-    Choices: tuple[str, ...]
+    Bounds: tuple | None = None
+    TypeBounds: tuple | None = None  #: the range the setting's type allows, from the editor's parameter control
+    WholeNumber: type | None = None  #: how a whole number travels: the protocol's signed or unsigned type
+    Help: str = ""  #: what the control does, shown as its tooltip
+    Presentation: Record | None = None  #: the editor's number presentation for this setting, if it names one
 
 
 class Projection(NamedTuple):
@@ -86,6 +96,16 @@ def ContainerLabel(identity: str) -> str:
     return Words(parts[-2] if len(parts) > 1 else parts[0])
 
 
+def _declared(element: Record, field: str) -> str | None:
+    """The words `element` declares in `field`, or None; a schema from before words were declared has none."""
+    return getattr(element, field, None) or None
+
+
+def ElementLabel(element: Record) -> str:
+    """The label an element declares, else one made from its identity."""
+    return _declared(element, "Label") or ContainerLabel(element.Id)
+
+
 def ControlLabel(identity: str, state: Record | None, action: Record | None) -> str:
     """A control's label: the last part of the state it shows, else of the action it requests."""
     named = state or action
@@ -100,15 +120,14 @@ def _control(schema: UiSchema, index: int) -> ProjectedControl:
     element = schema.Elements[index]
     state = _binding(element.Bindings, _STATE)
     action = _binding(element.Bindings, _ACTION)
-    choices = element.Choices
-    hasValue = element.Control in _PROPERTY_TYPES and (element.Control != _CHOICE or choices)
+    hasValue = element.Control in _PROPERTY_TYPES
     return ProjectedControl(
-        Label=ControlLabel(element.Id, state, action),
+        Label=_declared(element, "Label") or ControlLabel(element.Id, state, action),
         Role=element.Control,
         Property=f"control_{index}" if hasValue else None,
         State=state,
         Action=action,
-        Choices=choices,
+        Help=_declared(element, "Help") or "",
     )
 
 
@@ -122,7 +141,7 @@ def _sent(control: ProjectedControl, value: object) -> object:
     person meant is the shortest decimal that is that same 32-bit number, and that is what is sent.
     """
     if control.Role == _INTEGER:
-        return float(value)
+        return (control.WholeNumber or Profile.Integer)(int(value))
     if control.Role != _NUMBER:
         return value
     single = _SINGLE.pack(value)
@@ -156,6 +175,7 @@ def Refresh(windowManager: object) -> None:
     target = BindingTarget()
     if _projection is None or values is None or target is None:
         return
+    _replaceParameterControls(target, type(values))
     _refreshing = True  # writing a property calls its update, which must not request it again
     try:
         for control in _projection.Controls.values():
@@ -175,12 +195,14 @@ def Refresh(windowManager: object) -> None:
 
 def _shownValue(control: ProjectedControl, value: object) -> object:
     """`value` as the control's widget holds it, or None when it cannot, as for a vector parameter."""
+    if control.Role == _INTEGER and hasattr(value, "Value"):
+        value = value.Value
     if control.Role == _CHOICE:
-        return value if value in control.Choices else None
+        return value if value in _choices(control) else None
     if control.Role == _NUMBER:
         return value if isinstance(value, float) else None
     if control.Role == _INTEGER:
-        return int(value) if isinstance(value, float) and value.is_integer() else None
+        return int(value) if isinstance(value, int) or (isinstance(value, float) and value.is_integer()) else None
     expected = {_BOOLEAN: bool, _TEXT: str}.get(control.Role)
     return value if expected is not None and isinstance(value, expected) else None
 
@@ -193,6 +215,7 @@ def _shows(control: ProjectedControl, shown: object, value: object) -> bool:
 
 
 def _shown(value: object) -> str:
+    value = getattr(value, "Value", value)
     if isinstance(value, float):
         return f"{value:.3g}"
     return "unknown" if value is None else str(value)
@@ -209,7 +232,8 @@ def _drawControl(layout: object, index: int) -> None:
     row.enabled = available
     values = getattr(bpy.context.window_manager, VALUES_PROPERTY, None)
     if control.Property is not None and values is not None:
-        row.prop(values, control.Property, text=control.Label)
+        slider = control.Presentation is not None and control.Presentation.Widget == _SLIDER
+        row.prop(values, control.Property, text=control.Label, slider=slider)
     elif control.Role == _COMMAND:
         row.operator(UiActionOperator.bl_idname, text=control.Label).Element = index
     else:
@@ -225,16 +249,34 @@ def _drawControl(layout: object, index: int) -> None:
             layout.label(text=f"Pending {_shown(pending)}; in effect {_shown(effective)}", icon="TIME")
 
 
+def _typeBounds(setting: Record) -> tuple | None:
+    """The range a single-number setting's type allows, as (least, greatest); None when it allows any."""
+    bounds = getattr(setting, "Bounds", None)
+    if bounds is None or not bounds.Minimum or not bounds.Maximum:
+        return None
+    return (bounds.Minimum[0], bounds.Maximum[0])
+
+
+def _isParameterControl(element: Record) -> bool:
+    """Whether `element` is the control an editor makes for each setting of one value type."""
+    return getattr(element, "Setting", None) is not None
+
+
 def _drawChildren(layout: object, index: int) -> None:
     for child in _projection.Children.get(index, ()):
+        if child in _dynamicControls:
+            _drawControl(layout, child)
+            continue
         element = _projection.Schema.Elements[child]
         if element.Kind == _SECTION:
             continue  # a sub-panel of its own
+        if _isParameterControl(element):
+            continue  # made again for each setting the session reports
         if element.Kind == _CONTROL:
             _drawControl(layout, child)
         else:
             box = layout.box()
-            box.label(text=ContainerLabel(element.Id))
+            box.label(text=ElementLabel(element))
             _drawChildren(box, child)
 
 
@@ -289,10 +331,141 @@ _PROPERTY_TYPES = {
 }
 
 
+_choiceCache: dict[tuple[str, ...], tuple] = {}
+_parameterSignature: tuple = ()
+_dynamicControls: set[int] = set()
+
+
+def _choices(control: ProjectedControl) -> tuple[str, ...]:
+    target = BindingTarget()
+    if target is not None and hasattr(target, "Choices") and control.State is not None:
+        return target.Choices(control.State.Owner.Value, control.State.Id.Value)
+    return ()
+
+
+def _choiceItems(control: ProjectedControl) -> tuple:
+    # Blender borrows the returned strings. Retain them for the projection's lifetime.
+    choices = _choices(control)
+    if choices not in _choiceCache:
+        _choiceCache[choices] = tuple((choice, Words(choice.split(".")[-1]), choice) for choice in choices)
+    return _choiceCache[choices]
+
+
+def _replaceParameterControls(target: object, valuesType: type) -> None:
+    """Project an identity editor's session parameters, replacing properties only when its shape changes."""
+    global _parameterSignature
+    if not hasattr(target, "Parameters"):
+        return
+    editors = []
+    for index, element in enumerate(_projection.Schema.Elements):
+        if element.Kind != "Editor":
+            continue
+        for binding in element.Bindings:
+            if binding.Role == _STATE:
+                editors.extend(
+                    (index, parameter) for parameter in target.Parameters(binding.Owner.Value, binding.Id.Value)
+                )
+    signature = tuple((parent, p.Owner, p.State, type(p.Value), p.Bounds) for parent, p in editors)
+    if signature == _parameterSignature:
+        return
+    _parameterSignature = signature
+    for index in _dynamicControls:
+        control = _projection.Controls.pop(index)
+        if hasattr(valuesType, control.Property):
+            delattr(valuesType, control.Property)
+    for parent in _projection.Children:
+        _projection.Children[parent] = tuple(
+            index for index in _projection.Children[parent] if index not in _dynamicControls
+        )
+    _dynamicControls.clear()
+    # C++ owns the semantic controls: the schema says, for each value type, which control shows a setting
+    # and what its binding carries. Python applies that rule and maps the role to a Blender property; it
+    # never infers a role from a value.
+    if not editors:
+        return
+    typeNames = {number: name for name, number in Profile.SETTINGS.ValueTypes._asdict().items()}
+    offset = 0
+    for parent, parameter in editors:
+        # The editor's control for this setting's value type: its role, binding value and range come from
+        # the engine; the setting's name, bounds and value come from the session.
+        model = next(
+            (
+                _projection.Schema.Elements[child]
+                for child in _projection.Children.get(parent, ())
+                if child not in _dynamicControls
+                and _isParameterControl(_projection.Schema.Elements[child])
+                and _projection.Schema.Elements[child].Setting.Type == typeNames.get(parameter.Type, "")
+            ),
+            None,
+        )
+        if model is None:
+            continue
+        index = len(_projection.Schema.Elements) + offset
+        offset += 1
+        bindings = tuple(
+            Record(
+                {
+                    "Owner": Record({"Value": parameter.Owner}),
+                    "Id": Record({"Value": parameter.State}),
+                    "Role": role,
+                    "Value": model.Setting.Value,
+                }
+            )
+            for role in (_STATE, _ACTION)
+        )
+        bounds = (
+            None if parameter.Bounds is None else tuple(getattr(bound, "Value", bound) for bound in parameter.Bounds)
+        )
+        typeName = typeNames.get(parameter.Type, "")
+        presentation = next(
+            (
+                setting
+                for setting in getattr(_projection.Schema.Elements[parent], "NumberSettings", ())
+                if setting.Setting == parameter.State
+            ),
+            None,
+        )
+        control = ProjectedControl(
+            Label=ControlLabel(f"{parameter.Owner}.{parameter.State}.control", bindings[0], bindings[1]),
+            Role=model.Control,
+            Property=f"control_{index}",
+            State=bindings[0],
+            Action=bindings[1],
+            Bounds=bounds,
+            TypeBounds=_typeBounds(model.Setting),
+            # Signedness is how the session takes the value, not how it is shown.
+            WholeNumber=Profile.UnsignedInteger if typeName == "UnsignedInteger" else Profile.Integer,
+            Presentation=presentation if model.Control == _NUMBER else None,
+        )
+        _projection.Controls[index] = control
+        _dynamicControls.add(index)
+        setattr(valuesType, control.Property, _property(index, control))
+        _projection.Children[parent] = (*_projection.Children.get(parent, ()), index)
+
+
 def _property(index: int, control: ProjectedControl) -> object:
     fields: dict[str, object] = {"name": control.Label, "update": _requester(index)}
+    if control.Help:
+        fields["description"] = control.Help
+    if control.Presentation is not None:
+        # A Blender float steps in hundredths and shows up to six digits after the point.
+        if control.Presentation.Step is not None:
+            fields["step"] = max(1, min(100, round(control.Presentation.Step * 100)))
+        if control.Presentation.Precision is not None:
+            fields["precision"] = min(6, control.Presentation.Precision)
     if control.Role == _CHOICE:
-        fields["items"] = tuple((choice, Words(choice.split(".")[-1]), choice) for choice in control.Choices)
+        fields["items"] = lambda _values, _context: _choiceItems(control)
+    # The setting's own bounds narrow what its type allows; a Blender integer field holds 32 bits.
+    low, high = (-math.inf, math.inf)
+    for bounds in (control.TypeBounds, control.Bounds):
+        if bounds is not None:
+            low, high = max(low, bounds[0]), min(high, bounds[1])
+    if control.Role == _INTEGER:
+        low, high = max(low, _INTEGER_LOWEST), min(high, _INTEGER_HIGHEST)
+    if low != -math.inf:
+        fields["min"] = int(low) if control.Role == _INTEGER else low
+    if high != math.inf:
+        fields["max"] = int(high) if control.Role == _INTEGER else high
     return getattr(bpy.props, _PROPERTY_TYPES[control.Role])(**fields)
 
 
@@ -307,12 +480,17 @@ def _detachValues(_cls: type) -> None:
 
 def Project(schema: UiSchema) -> list[type]:
     """The Blender classes that show `schema`: the values group first, then panels, parents first."""
-    global _projection
+    global _projection, _parameterSignature
+    _parameterSignature = ()
+    _dynamicControls.clear()
+    _choiceCache.clear()
     children: dict[int, list[int]] = {}
     for index, element in enumerate(schema.Elements):
         children.setdefault(element.Parent, []).append(index)
     controls = {
-        index: _control(schema, index) for index, element in enumerate(schema.Elements) if element.Kind == _CONTROL
+        index: _control(schema, index)
+        for index, element in enumerate(schema.Elements)
+        if element.Kind == _CONTROL and not _isParameterControl(element)
     }
     _projection = Projection(schema, {key: tuple(value) for key, value in children.items()}, controls)
 
@@ -339,7 +517,8 @@ def Project(schema: UiSchema) -> list[type]:
         identifier = f"FD_PT_ui_{index}"
         attributes = {
             "bl_idname": identifier,
-            "bl_label": ContainerLabel(element.Id),
+            "bl_label": ElementLabel(element),
+            "bl_description": _declared(element, "Help") or "",
             "bl_space_type": _SPACE_TYPE,
             "bl_region_type": _REGION_TYPE,
             "bl_context": _CONTEXT,

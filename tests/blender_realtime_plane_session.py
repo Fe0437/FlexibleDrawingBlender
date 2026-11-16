@@ -29,7 +29,7 @@ import types
 import bpy
 
 TIMEOUT_S = 30.0
-OWNER = "presentation.tool_ui"
+OWNER = "freehand.pressure_brush"
 
 
 def _arguments() -> argparse.Namespace:
@@ -64,7 +64,8 @@ def _link() -> object:
 
 def _connected() -> bool:
     link = _link()
-    return link.State is LinkState.CONNECTED and link.Effective(OWNER, "pressure_brush.hardness") is not None
+    # The active tool is always published; a setting belongs to one tool, which may have changed.
+    return link.State is LinkState.CONNECTED and link.Effective("presentation.tool_ui", "active_tool") is not None
 
 
 class _RecordingLayout:
@@ -83,7 +84,7 @@ class _RecordingLayout:
     def label(self, *, text: str, icon: str | None = None) -> None:
         self.Labels.append(text)
 
-    def prop(self, _values: object, _property: str, *, text: str) -> None:
+    def prop(self, _values: object, _property: str, *, text: str, slider: bool = False) -> None:
         return None
 
     def operator(self, _identifier: str, *, text: str) -> object:
@@ -226,23 +227,29 @@ def _steps() -> Iterator[tuple[str, Callable[[], bool]]]:
     hardness = _property("Hardness")
     values = bpy.context.window_manager.flexible_drawing_ui
     setattr(values, hardness, 0.8)  # Blender calls the property's update, which requests the action
-    assert _link().Pending(OWNER, "pressure_brush.set_hardness") == 0.8, "the change was not requested"
+    assert _link().Pending(OWNER, "hardness") == 0.8, "the change was not requested"
     assert any(label.startswith("Pending 0.8; in effect ") for label in _activeToolLabels())
-    yield "the hardness to take effect", lambda: _link().Pending(OWNER, "pressure_brush.set_hardness") is None
-    assert _link().Effective(OWNER, "pressure_brush.hardness") == 0.8
+    yield "the hardness to take effect", lambda: _link().Pending(OWNER, "hardness") is None
+    assert _link().Effective(OWNER, "hardness") == 0.8
     assert abs(getattr(values, hardness) - 0.8) < 1e-6, "the widget does not show the value in effect"
 
-    # A tool is adopted when the pen next touches the canvas. The stand-in's fake pen keeps drawing,
-    # so the tool changes; nobody touches the real Realtime Plane here, so the choice stays pending.
-    setattr(values, _property("Active Tool"), "freehand.pen")
+    # A tool is adopted at the next input event outside a contact. The stand-in's fake pen keeps drawing,
+    # so the tool changes; the real Realtime Plane adopts it only if the pointer moved over its window,
+    # so the choice is either still pending or in effect.
+    setattr(values, _property("Active tool"), "freehand.pen")
     assert "Pending freehand.pen; in effect freehand.pressure_brush" in _activeToolLabels()
     if bpy.app.background:
-        yield "the pen to become the tool", lambda: _link().Effective(OWNER, "active_tool") == "freehand.pen"
+        yield (
+            "the pen to become the tool",
+            lambda: _link().Effective("presentation.tool_ui", "active_tool") == "freehand.pen",
+        )
     else:
         settled = time.monotonic() + 2.0
         yield "the choice to travel", lambda: time.monotonic() > settled
         assert _link().Available, f"the session dropped: {_link().Message}"
-        assert _link().Pending(OWNER, "select_tool") == "freehand.pen", "the choice was lost"
+        pending = _link().Pending("presentation.tool_ui", "select_tool")
+        effective = _link().Effective("presentation.tool_ui", "active_tool")
+        assert "freehand.pen" in (pending, effective), f"the choice was lost; in effect {effective}"
 
     # Disabling the add-on lets go of the canvas; enabling it again finds the same one.
     for _ in range(3):

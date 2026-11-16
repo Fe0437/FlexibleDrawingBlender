@@ -28,9 +28,9 @@ import unittest
 import zipfile
 
 TIMEOUT_S = 15.0
-OWNER = "presentation.tool_ui"
-SET_HARDNESS = "pressure_brush.set_hardness"
-HARDNESS = "pressure_brush.hardness"
+OWNER = "freehand.pressure_brush"
+SET_HARDNESS = "hardness"
+HARDNESS = "hardness"
 
 
 class Environment:
@@ -208,8 +208,10 @@ class LinkTests(unittest.TestCase):
             link.Request(OWNER, SET_HARDNESS, value)
         _until(lambda: link.Pending(OWNER, SET_HARDNESS) is None, link.Advance, "the last value")
         self.assertEqual(link.Effective(OWNER, HARDNESS), 0.3)
-        self.assertTrue(link.Request(OWNER, "select_tool", "freehand.pen"))
-        _until(lambda: link.Effective(OWNER, "active_tool") == "freehand.pen", link.Advance, "the tool")
+        self.assertTrue(link.Request("presentation.tool_ui", "select_tool", "freehand.pen"))
+        _until(
+            lambda: link.Effective("presentation.tool_ui", "active_tool") == "freehand.pen", link.Advance, "the tool"
+        )
         self.assertFalse(link.Request(OWNER, SET_HARDNESS, float("nan")), "a value no payload carries")
 
     def test_a_slow_host_sees_the_canvas_move_through_a_long_stroke(self) -> None:

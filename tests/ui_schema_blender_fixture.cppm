@@ -4,6 +4,10 @@
  */
 module;
 
+// Clang 23 crashes generating std::allocator code for this unit unless it includes <vector>
+// itself; the vectors it uses come through an imported module.
+#include <vector>
+
 export module flexible_drawing.tests.blender_ui_schema_fixture;
 
 export import flexible_drawing.tests.ui_schema_fixtures.authoring_workspace_ui;
@@ -27,7 +31,7 @@ export namespace flexible_drawing::tests::blender_ui_schema
         return presentation::ui_schema_builder::Profile("blender")
             .Add(Under(ui_schema_fixtures::authoring_ids::Workspace, Section(ids::ToolSettingsSection)))
             .Replace(ChoiceControl(ui_schema_fixtures::authoring_ids::ToolSelector,
-                                   IdentityState{"core.tool", "active_tool"},
+                                   IdentityState{"use_cases.tool", "active_tool"},
                                    IdentityAction{"blender.tool", "select_tool"}))
             .Move(ui_schema_fixtures::authoring_ids::ToolSelector, Into(ids::ToolSettingsSection))
             .Move(ui_schema_fixtures::authoring_ids::BrushSizeControl, Into(ids::ToolSettingsSection))

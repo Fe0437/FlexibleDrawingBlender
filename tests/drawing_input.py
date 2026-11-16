@@ -15,7 +15,7 @@ drawing.Draw(realtimePlanePid, strokes=3, seconds=1.0, seed=0, what="three strok
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import ctypes
 import ctypes.util
 import math
@@ -39,7 +39,7 @@ _ON_SCREEN_ONLY = 1 << 0
 _EXCLUDE_DESKTOP = 1 << 4
 _SINT64 = 4  # kCFNumberSInt64Type
 _IGNORING_OTHER_APPS = 1 << 1  # NSApplicationActivateIgnoringOtherApps
-_WINDOW_KEYS = (b"kCGWindowOwnerPID", b"kCGWindowLayer", b"kCGWindowBounds")
+_WINDOW_KEYS = (b"kCGWindowOwnerPID", b"kCGWindowLayer", b"kCGWindowBounds", b"kCGWindowNumber")
 #: Height of a window's title bar, which takes no strokes.
 _TITLE_BAR_POINTS = 28.0
 
@@ -47,7 +47,7 @@ _TITLE_BAR_POINTS = 28.0
 class SyntheticPointer:
     """Posts left-button pointer events through Core Graphics, as a mouse would deliver them."""
 
-    _DOWN, _UP, _DRAGGED = 1, 2, 6
+    _DOWN, _UP, _MOVED, _DRAGGED = 1, 2, 5, 6
 
     def __init__(self, rate: float = 240.0) -> None:
         self.Rate = rate
@@ -69,13 +69,15 @@ class SyntheticPointer:
         """What drew, for a report."""
         return f"synthetic pointer events at {self.Rate:.0f} Hz"
 
-    def Allowed(self) -> bool:
+    def Allowed(self, requestAccess: bool = True) -> bool:
         """Whether posted events can reach a window: permission granted, and the screen not locked.
 
-        Asks the system for permission once when this process does not have it yet. While the screen
+        With `requestAccess`, asks the system once when this process has no permission yet. While the screen
         is locked, posted events reach no application, so a check cannot draw.
         """
-        allowed = bool(self._cg.CGPreflightPostEventAccess() or self._cg.CGRequestPostEventAccess())
+        allowed = bool(self._cg.CGPreflightPostEventAccess())
+        if not allowed and requestAccess:
+            allowed = bool(self._cg.CGRequestPostEventAccess())
         return allowed and not self._screenLocked()
 
     def _screenLocked(self) -> bool:
@@ -101,8 +103,8 @@ class SyntheticPointer:
         self._cg.CGEventPost(0, event)  # the HID tap: the event enters as a device's would
         self._cf.CFRelease(event)
 
-    def _windows(self) -> list[tuple[int, int, tuple[float, float, float, float]]]:
-        """Every window on screen, front to back: its process, its layer, and its bounds in points."""
+    def _windows(self) -> list[tuple[int, int, tuple[float, float, float, float], int]]:
+        """Every window on screen, front to back: its process, layer, bounds in points and window number."""
         cg, cf = self._cg, self._cf
         cg.CGWindowListCopyWindowInfo.restype = ctypes.c_void_p
         cg.CGWindowListCopyWindowInfo.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
@@ -124,7 +126,7 @@ class SyntheticPointer:
         for index in range(cf.CFArrayGetCount(windows) if windows else 0):
             window = cf.CFArrayGetValueAtIndex(windows, index)
             numbers = []
-            for name in (b"kCGWindowOwnerPID", b"kCGWindowLayer"):
+            for name in (b"kCGWindowOwnerPID", b"kCGWindowLayer", b"kCGWindowNumber"):
                 value = ctypes.c_int64()
                 cf.CFNumberGetValue(cf.CFDictionaryGetValue(window, keys[name]), _SINT64, ctypes.byref(value))
                 numbers.append(value.value)
@@ -132,7 +134,7 @@ class SyntheticPointer:
             if cg.CGRectMakeWithDictionaryRepresentation(
                 cf.CFDictionaryGetValue(window, keys[b"kCGWindowBounds"]), rect
             ):
-                found.append((numbers[0], numbers[1], (rect.x, rect.y, rect.width, rect.height)))
+                found.append((numbers[0], numbers[1], (rect.x, rect.y, rect.width, rect.height), numbers[2]))
         for key in keys.values():
             cf.CFRelease(key)
         if windows:
@@ -141,12 +143,12 @@ class SyntheticPointer:
 
     def _window(self, pid: int) -> tuple[float, float, float, float] | None:
         """The bounds of the process's largest ordinary window on screen, or None."""
-        owned = [bounds for owner, layer, bounds in self._windows() if owner == pid and layer == 0]
+        owned = [bounds for owner, layer, bounds, _number in self._windows() if owner == pid and layer == 0]
         return max(owned, key=lambda bounds: bounds[2] * bounds[3], default=None)
 
     def _inFront(self, pid: int, x: float, y: float) -> bool:
         """Whether the topmost ordinary window at (x, y) belongs to the process."""
-        for owner, layer, (left, top, width, height) in self._windows():
+        for owner, layer, (left, top, width, height), _number in self._windows():
             if layer == 0 and left <= x < left + width and top <= y < top + height:
                 return owner == pid
         return False
@@ -196,6 +198,79 @@ class SyntheticPointer:
                 self._activate(pid)
             time.sleep(0.1)
         raise RuntimeError(f"the Realtime Plane window (process {pid}) could not be brought to the front")
+
+    def WindowInfo(self, window: int) -> tuple[int, tuple[float, float, float, float]]:
+        """Bring `window`'s largest ordinary window forward; return its capture number and bounds.
+
+        Bounds are desktop points, with a top-left origin. The number belongs to that window only;
+        a caller taking screenshots must ask again if the process replaces its window.
+        """
+        bounds = self._bringToFront(window)
+        matches = [
+            (number, rect)
+            for owner, layer, rect, number in self._windows()
+            if owner == window and layer == 0 and rect == bounds
+        ]
+        if not matches:
+            raise RuntimeError(f"the Realtime Plane window (process {window}) disappeared")
+        return matches[0]
+
+    def _contentPoint(
+        self, bounds: tuple[float, float, float, float], position: tuple[float, float]
+    ) -> tuple[float, float]:
+        """Convert a normalized content position to desktop points; reject the frame and title bar."""
+        if not all(math.isfinite(value) and 0.0 < value < 1.0 for value in position):
+            raise ValueError("a pointer position must be strictly inside the window's content")
+        left, top, width, height = bounds
+        return left + width * position[0], top + _TITLE_BAR_POINTS + (height - _TITLE_BAR_POINTS) * position[1]
+
+    def Hover(self, window: int, position: tuple[float, float], seconds: float = 0.2) -> tuple[float, float]:
+        """Move without pressing to `position` inside the content; return the desktop point.
+
+        `position` is normalized from the content's top-left. Repeated mouse-moved events keep the
+        point current while a check waits; no button-down, drag or button-up event is posted.
+        """
+        if not math.isfinite(seconds) or seconds <= 0.0:
+            raise ValueError("hover duration must be positive and finite")
+        point = self._contentPoint(self._bringToFront(window), position)
+        if not self._inFront(window, *point):
+            raise RuntimeError("another window covers the requested hover point")
+        started = time.perf_counter()
+        for step in range(max(1, int(seconds * self.Rate))):
+            self._post(self._MOVED, *point)
+            delay = started + (step + 1) / self.Rate - time.perf_counter()
+            if delay > 0:
+                time.sleep(delay)
+        return point
+
+    def DrawPath(self, window: int, points: Sequence[tuple[float, float]], seconds: float) -> None:
+        """Draw one continuous contact along normalized content `points`, including self-crossings.
+
+        All vertices must lie strictly inside the content. The whole path is checked before any
+        event is posted. A button-up is sent even if posting a later sample fails.
+        """
+        if len(points) < 2 or not math.isfinite(seconds) or seconds <= 0.0:
+            raise ValueError("a path needs at least two points and a positive, finite duration")
+        bounds = self._bringToFront(window)
+        path = [self._contentPoint(bounds, point) for point in points]
+        if not all(self._inFront(window, *point) for point in path):
+            raise RuntimeError("another window covers part of the requested stroke")
+        steps = max(len(path), int(seconds * self.Rate))
+        started = time.perf_counter()
+        point = path[0]
+        try:
+            self._post(self._DOWN, *point)
+            for step in range(1, steps):
+                progress = (len(path) - 1) * step / (steps - 1)
+                segment = min(len(path) - 2, int(progress))
+                fraction = progress - segment
+                point = tuple(a + (b - a) * fraction for a, b in zip(path[segment], path[segment + 1], strict=True))
+                self._post(self._DRAGGED, *point)
+                delay = started + step / self.Rate - time.perf_counter()
+                if delay > 0:
+                    time.sleep(delay)
+        finally:
+            self._post(self._UP, *point)
 
     def Draw(
         self,
@@ -272,11 +347,13 @@ class DrawingInput:
     """Chooses who draws from a check's `--input`."""
 
     @staticmethod
-    def Open(kind: str, device: str = "", rate: float = 240.0) -> SyntheticPointer | Person | None:
-        """The input for `kind`; None for synthetic input where events cannot be posted."""
+    def Open(
+        kind: str, device: str = "", rate: float = 240.0, *, requestAccess: bool = True
+    ) -> SyntheticPointer | Person | None:
+        """The input for `kind`; None where posting is unavailable. `requestAccess=False` never prompts."""
         if kind == "person":
             return Person(device)
         if sys.platform != "darwin":
             return None
         pointer = SyntheticPointer(rate)
-        return pointer if pointer.Allowed() else None
+        return pointer if pointer.Allowed(requestAccess) else None

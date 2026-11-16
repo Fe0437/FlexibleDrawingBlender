@@ -6,7 +6,7 @@ projects it with its own widgets. Nothing here knows Blender.
 
 The description arrives as self-describing bytes and is decoded by name (see `abi.reflected`), so
 each element carries exactly the fields the engine's C++ projection declares: `Id`, `Kind`,
-`Control`, `Parent`, `Bindings` and `Choices`, with enumerators as their C++ names such as
+`Control`, `Parent` and `Bindings`, with enumerators as their C++ names such as
 "Control" or "Number". A field the engine adds appears here with no edit to this module.
 """
 
@@ -22,7 +22,12 @@ from . import Interface
 
 @dataclass(frozen=True)
 class UiSchema:
-    """The engine's whole UI: elements in depth-first order, every parent before its children."""
+    """The engine's whole UI: elements in depth-first order, every parent before its children.
+
+    A control with a `Setting` is the one an editor makes for each setting of that `Setting.Type` it shows.
+    `Label` and `Help` are an element's declared English words, None when it declares none, and an
+    editor's `NumberSettings` say how to show the number settings it presents.
+    """
 
     Elements: tuple[Record, ...]
 

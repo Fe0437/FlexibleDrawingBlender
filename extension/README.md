@@ -117,10 +117,10 @@ from flexible_drawing.realtime_plane.process import BundledProgram
 bundled = Path("build/debug/blender-extension/flexible_drawing/realtime_plane/bin")
 link = RealtimePlaneLink(lambda: BundledProgram(bundled))
 link.Open()  # finds the running Realtime Plane, or starts it
-link.Request("presentation.tool_ui", "pressure_brush.set_hardness", 0.8)
-while link.Pending("presentation.tool_ui", "pressure_brush.set_hardness") is not None:
+link.Request("freehand.pressure_brush", "hardness", 0.8)
+while link.Pending("freehand.pressure_brush", "hardness") is not None:
     link.Advance()  # from the host's timer, in a real host
-print(link.Effective("presentation.tool_ui", "pressure_brush.hardness"))  # 0.8
+print(link.Effective("freehand.pressure_brush", "hardness"))  # 0.8
 link.Detach()  # the Realtime Plane keeps running; link.Stop() would end it
 ```
 

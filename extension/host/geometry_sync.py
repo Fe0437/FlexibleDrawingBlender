@@ -14,9 +14,9 @@ same partition is tracked and must be unique within one `GeometrySyncState`. Whe
 several Blender objects, the key must include enough stable object and subdivision identity to avoid
 collisions. The caller also owns the mapping from that key to the Blender data captured on commit.
 
-This host synchronization region is not `core.region.RectI` or `core.region.Box3d`. Those types
-describe spatial bounds. A synchronization region describes update granularity and may later carry
-one of those bounds as metadata, but no spatial extent is represented here today.
+This host synchronization region is not a spatial bound such as `Box3d`. A synchronization region
+describes update granularity and may later carry a bound as metadata, but no spatial extent is
+represented here today.
 
 ```python
 sync = GeometrySyncState()

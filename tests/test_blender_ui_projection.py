@@ -75,6 +75,9 @@ class FakeLink:
     def Effective(self, owner: str, state: str) -> object:
         return self.EffectiveValues.get((owner, state))
 
+    def Choices(self, owner: str, state: str) -> tuple[str, ...]:
+        return ("freehand.pressure_brush", "freehand.pen") if state == "active_tool" else ()
+
     def Apply(self, action: str, state: str) -> None:
         """What a published tool state does: the request takes effect."""
         self.EffectiveValues[(OWNER, state)] = self.PendingValues.pop((OWNER, action))
@@ -139,6 +142,152 @@ class ProjectionTests(unittest.TestCase):
         setattr(self.shown, name, value)
         self.values.__annotations__[name]["update"](self.shown, self.bpy.context)
 
+    def test_session_parameters_replace_controls_and_choices(self) -> None:
+        record = self.projection.Record
+        binding = record({"Owner": record({"Value": OWNER}), "Id": record({"Value": "active_tool"}), "Role": "State"})
+        schema = self.projection.UiSchema(
+            (
+                record(
+                    {
+                        "Id": "painting.workspace",
+                        "Kind": "Surface",
+                        "Parent": None,
+                        "Bindings": (),
+                        "Choices": (),
+                        "Control": None,
+                    }
+                ),
+                record(
+                    {
+                        "Id": "settings",
+                        "Kind": "Editor",
+                        "Parent": 0,
+                        "Bindings": (binding,),
+                        "Choices": (),
+                        "Control": None,
+                    }
+                ),
+                # The editor's control for scalar settings; Python repeats it and never guesses a widget.
+                record(
+                    {
+                        "Id": "settings.scalar.control",
+                        "Kind": "Control",
+                        "Parent": 1,
+                        "Bindings": (),
+                        "Control": "Number",
+                        "Setting": record({"Type": "Scalar", "Value": "Number", "Bounds": None}),
+                    }
+                ),
+            ),
+        )
+        values = self.projection.Project(schema)[0]
+        parameter = types.SimpleNamespace(Owner="tool.width", State="width", Type=0, Value=3.0, Bounds=(1.0, 20.0))
+        self.link.Parameters = lambda owner, state: (parameter,)
+        self.link.Choices = lambda owner, state: ("tool.width",)
+
+        self.projection._replaceParameterControls(self.link, values)
+        control = next(iter(self.projection._projection.Controls.values()))
+        self.assertEqual((control.State.Owner.Value, control.State.Id.Value), ("tool.width", "width"))
+        self.assertEqual(
+            (getattr(values, control.Property)["min"], getattr(values, control.Property)["max"]), (1.0, 20.0)
+        )
+        self.projection._requester(3)(types.SimpleNamespace(control_3=4.0), None)
+        self.assertEqual(self.link.Requests[-1], ("tool.width", "width", 4.0))
+        parameter = types.SimpleNamespace(Owner="tool.softness", State="softness", Type=0, Value=0.5, Bounds=(0.0, 1.0))
+        self.projection._replaceParameterControls(self.link, values)
+        controls = tuple(self.projection._projection.Controls.values())
+        self.assertEqual(len(controls), 1)
+        self.assertEqual(controls[0].State.Id.Value, "softness")
+        self.assertEqual(controls[0].State.Owner.Value, "tool.softness")
+
+    def test_declared_words_and_number_hints_are_shown(self) -> None:
+        record = self.projection.Record
+        binding = record({"Owner": record({"Value": OWNER}), "Id": record({"Value": "active_tool"}), "Role": "State"})
+
+        def hint(setting: str, widget: str, step: float | None, precision: int | None) -> object:
+            return record({"Setting": setting, "Widget": widget, "Step": step, "Precision": precision})
+
+        def scalar(identity: str, parent: int) -> object:
+            return record(
+                {
+                    "Id": identity,
+                    "Kind": "Control",
+                    "Parent": parent,
+                    "Bindings": (),
+                    "Control": "Number",
+                    "Setting": record({"Type": "Scalar", "Value": "Number", "Bounds": None}),
+                }
+            )
+
+        schema = self.projection.UiSchema(
+            (
+                record(
+                    {
+                        "Id": "painting.workspace",
+                        "Kind": "Surface",
+                        "Parent": None,
+                        "Bindings": (),
+                        "Control": None,
+                        "Label": "Paint",
+                        "Help": "Where a stroke is drawn.",
+                    }
+                ),
+                record(
+                    {
+                        "Id": "painting.settings.group",
+                        "Kind": "Editor",
+                        "Parent": 0,
+                        "Bindings": (binding,),
+                        "Control": None,
+                        "Label": "Brush settings",
+                        "Help": None,
+                        "NumberSettings": (
+                            hint("hardness", "Slider", None, None),
+                            hint("radius", "Field", 0.5, 1),
+                            hint("count", "Slider", 2.0, 0),
+                        ),
+                    }
+                ),
+                scalar("painting.settings.group.scalar.control", 1),
+                record(
+                    {
+                        "Id": "painting.settings.group.integer.control",
+                        "Kind": "Control",
+                        "Parent": 1,
+                        "Bindings": (),
+                        "Control": "Integer",
+                        "Setting": record({"Type": "Integer", "Value": "Integer", "Bounds": None}),
+                    }
+                ),
+            ),
+        )
+        classes = {found.__name__: found for found in self.projection.Project(schema)}
+        values = classes["FD_UiValues"]
+        surface = classes["FD_PT_ui_0"]
+        self.assertEqual((surface.bl_label, surface.bl_description), ("Paint", "Where a stroke is drawn."))
+
+        parameters = (
+            types.SimpleNamespace(Owner="tool", State="hardness", Type=0, Value=1.0, Bounds=(0.0, 1.0)),
+            types.SimpleNamespace(Owner="tool", State="radius", Type=0, Value=3.0, Bounds=None),
+            types.SimpleNamespace(Owner="tool", State="count", Type=6, Value=2, Bounds=None),
+            types.SimpleNamespace(Owner="tool", State="flow", Type=0, Value=0.5, Bounds=None),
+        )
+        self.link.Parameters = lambda owner, state: parameters
+        self.projection._replaceParameterControls(self.link, values)
+        made = {control.State.Id.Value: control for control in self.projection._projection.Controls.values()}
+        radius = getattr(values, made["radius"].Property)
+        self.assertEqual((radius["step"], radius["precision"]), (50, 1))
+        self.assertNotIn("step", getattr(values, made["flow"].Property), "a setting not named keeps Blender's own")
+        self.assertIsNone(made["count"].Presentation, "a number hint never reaches a whole-number control")
+
+        self.bpy.context.window_manager.flexible_drawing_ui = types.SimpleNamespace(
+            **{control.Property: 0 for control in made.values()}
+        )
+        drawn = RecordingLayout()
+        self.projection._drawChildren(drawn, 0)
+        self.assertIn("Brush settings", drawn.Labels)
+        self.assertEqual(drawn.Sliders, [made["hardness"].Property])
+
     def test_every_role_becomes_a_widget_and_every_container_a_panel(self) -> None:
         widgets = {name: (field["kind"], field["name"]) for name, field in self.values.__annotations__.items()}
         self.assertEqual(
@@ -152,7 +301,7 @@ class ProjectionTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            self.values.__annotations__["control_4"]["items"],
+            self.values.__annotations__["control_4"]["items"](None, None),
             (
                 ("freehand.pressure_brush", "Pressure Brush", "freehand.pressure_brush"),
                 ("freehand.pen", "Pen", "freehand.pen"),
@@ -181,7 +330,7 @@ class ProjectionTests(unittest.TestCase):
             self.link.Requests,
             [
                 (OWNER, "pressure_brush.set_hardness", 0.8),
-                (OWNER, "pressure_brush.set_spacing", 3.0),  # every number travels as a real number
+                (OWNER, "pressure_brush.set_spacing", self.projection.Profile.Integer(3)),
                 (OWNER, "select_tool", "freehand.pen"),
             ],
         )
@@ -197,6 +346,35 @@ class ProjectionTests(unittest.TestCase):
         self.assertNotIn("Pending 0.8; in effect 0.35", applied)
         self.assertIn("Effective 0.8", applied)
         self.assertEqual(len(self.link.Requests), 3, "showing a value never requests it")
+
+    def test_unsigned_setting_is_a_whole_number_that_travels_unsigned(self) -> None:
+        record = self.projection.Record
+        binding = record(
+            {
+                "Owner": record({"Value": "tool.seed"}),
+                "Id": record({"Value": "seed"}),
+                "Role": "Action",
+                "Value": "Integer",
+            }
+        )
+        control = self.projection.ProjectedControl(
+            "Seed",
+            "Integer",
+            "seed",
+            None,
+            binding,
+            TypeBounds=(0.0, float(2**64 - 1)),
+            WholeNumber=self.projection.Profile.UnsignedInteger,
+        )
+        # Its type's range, cut to what a Blender integer field holds.
+        self.assertEqual(self.projection._property(0, control)["min"], 0)
+        self.assertEqual(self.projection._property(0, control)["max"], 2**31 - 1)
+        sent = self.projection._sent(control, 17)
+        self.assertEqual(sent, self.projection.Profile.UnsignedInteger(17))
+        payload = self.projection.Profile.EncodeValueAction(
+            self.projection.Profile.ValueAction("tool.seed", "seed", sent)
+        )
+        self.assertEqual(self.projection.Profile.DecodeValueAction(payload).Value, sent)
 
     def test_a_pending_request_is_not_overwritten_by_the_value_in_effect(self) -> None:
         self._change("control_3", 0.9)

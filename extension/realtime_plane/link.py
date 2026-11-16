@@ -164,6 +164,14 @@ class RealtimePlaneLink:
         """The value requested through an action binding that has not taken effect yet."""
         return None if self.Session is None else self.Session.Pending(owner, action)
 
+    def Choices(self, owner: str, state: str) -> tuple[str, ...]:
+        """Choices the open session supports."""
+        return () if not self.Available else self.Session.Choices(owner, state)
+
+    def Parameters(self, owner: str, state: str) -> tuple:
+        """Published parameters of an effective identity."""
+        return () if not self.Available else self.Session.Parameters(owner, state)
+
     def Effective(self, owner: str, state: str) -> ActionValue | None:
         """The value the Realtime Plane reports in effect for a state binding."""
         return None if self.Session is None else self.Session.Effective(owner, state)

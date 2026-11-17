@@ -33,7 +33,7 @@ FD_ENGINE_STATUS_UNKNOWN_INTERFACE = 5
 
 
 # Constants
-# Every other value the header pins, which a host compares against by number.
+# Every other value the header pins, which a host passes or compares as it is.
 FD_LOG_SEVERITY_DEBUG = 1
 FD_LOG_SEVERITY_ERROR = 4
 FD_LOG_SEVERITY_INFO = 2

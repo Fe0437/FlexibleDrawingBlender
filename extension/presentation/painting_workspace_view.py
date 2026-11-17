@@ -1,4 +1,4 @@
-"""The engine's UI, drawn with Blender widgets: the same few classes project any UI it describes.
+"""The painting workspace view, drawn with Blender widgets: the same few classes project any workspace it describes.
 
 Flexible Drawing defines its UI once, for every host, and the engine describes it through the C ABI
 as surfaces, sections, groups, editors and controls, each control bound to the state it shows and
@@ -6,7 +6,8 @@ the action it requests. Nothing here names a control. The projection walks whate
 describes and maps each *kind* to one Blender idea:
 
     surface   a panel                   section   a sub-panel of its panel
-    group     a box inside its panel    editor    a box, its bindings drawn as controls
+    group     a box inside its panel    editor    a box, its bindings drawn as controls; an editor that
+                                                  shows the graph view is a button opening a node editor
     control   a widget chosen by its role: a number field, a checkbox, a text field, a drop-down
               for a choice, or a button for a command
 
@@ -34,9 +35,9 @@ from typing import NamedTuple
 
 import bpy
 
-from ..abi import EngineError, Record, UiSchema
+from ..abi import EngineError, PaintingWorkspaceUiView, Record
 from ..realtime_plane.profile import Profile
-from . import BindingTarget, Engine
+from . import BindingTarget, Engine, graph_view
 
 _logger = logging.getLogger("flexible_drawing")
 
@@ -76,7 +77,7 @@ class ProjectedControl(NamedTuple):
 class Projection(NamedTuple):
     """The schema being shown, with what drawing it needs worked out once."""
 
-    Schema: UiSchema
+    Schema: PaintingWorkspaceUiView
     Children: dict[int, tuple[int, ...]]
     Controls: dict[int, ProjectedControl]
 
@@ -116,7 +117,7 @@ def _binding(bindings: tuple[Record, ...], role: str) -> Record | None:
     return next((binding for binding in bindings if binding.Role == role), None)
 
 
-def _control(schema: UiSchema, index: int) -> ProjectedControl:
+def _control(schema: PaintingWorkspaceUiView, index: int) -> ProjectedControl:
     element = schema.Elements[index]
     state = _binding(element.Bindings, _STATE)
     action = _binding(element.Bindings, _ACTION)
@@ -274,6 +275,9 @@ def _drawChildren(layout: object, index: int) -> None:
             continue  # made again for each setting the session reports
         if element.Kind == _CONTROL:
             _drawControl(layout, child)
+        elif getattr(element, "View", None) == graph_view.VIEW:
+            # Blender shows a graph in a node editor, so the editor is a button that opens one.
+            layout.operator(graph_view.OPEN_OPERATOR, text=f"Open {ElementLabel(element)}", icon="NODETREE")
         else:
             box = layout.box()
             box.label(text=ElementLabel(element))
@@ -478,7 +482,7 @@ def _detachValues(_cls: type) -> None:
         delattr(bpy.types.WindowManager, VALUES_PROPERTY)
 
 
-def Project(schema: UiSchema) -> list[type]:
+def Project(schema: PaintingWorkspaceUiView) -> list[type]:
     """The Blender classes that show `schema`: the values group first, then panels, parents first."""
     global _projection, _parameterSignature
     _parameterSignature = ()
@@ -543,7 +547,7 @@ def GeneratedClasses() -> list[type]:
     if engine is None:
         return []
     try:
-        schema = engine.UiSchema.Describe()
+        schema = engine.UiSchema.DescribePaintingWorkspace()
     except EngineError:
         _logger.exception("[blender] the engine did not describe its UI")
         return []

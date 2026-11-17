@@ -49,9 +49,9 @@ from .generated import (
     DocumentSnapshot,
 )
 from .interfaces.document import DocumentInterface
-from .interfaces.ui_schema import UiSchema, UiSchemaInterface
+from .interfaces.ui_schema import PaintingWorkspaceUiView, UiSchemaInterface
 from .library import LIBRARY_OVERRIDE, DiscoverLibrary, LibraryName, LoadLibrary
-from .reflected import Decode, Record
+from .reflected import Alternative, Decode, Record
 
 __all__ = [
     "FD_ABI_VERSION",
@@ -70,6 +70,7 @@ __all__ = [
     "FD_LOG_SEVERITY_WARNING",
     "FD_UI_SCHEMA_STATUS_UNRESOLVED",
     "LIBRARY_OVERRIDE",
+    "Alternative",
     "Decode",
     "DiscoverLibrary",
     "DocumentInterface",
@@ -79,8 +80,8 @@ __all__ = [
     "LibraryName",
     "LoadLibrary",
     "LogSink",
+    "PaintingWorkspaceUiView",
     "Record",
-    "UiSchema",
     "UiSchemaInterface",
     "generated",
 ]

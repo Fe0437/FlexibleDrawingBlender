@@ -53,8 +53,8 @@ flexible_drawing_add_test(
   FIXTURES_REQUIRED flexible_drawing_test_environment)
 
 flexible_drawing_add_test(
-  NAME flexible_drawing.blender_ui_projection
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_blender_ui_projection.py"
+  NAME flexible_drawing.blender_painting_workspace_view
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_blender_painting_workspace_view.py"
     --project-source-dir "${PROJECT_SOURCE_DIR}"
     --extension-dir "${CMAKE_CURRENT_SOURCE_DIR}/../extension"
   LABELS unit blender presentation schema
@@ -129,6 +129,21 @@ if(BLENDER_PLUGIN_EXECUTABLE)
       --executable "${BLENDER_PLUGIN_EXECUTABLE}"
     LABELS smoke blender integration
     TIMEOUT 90
+    SEED 0
+    FIXTURES_REQUIRED flexible_drawing_test_environment)
+
+  # The graph view in a background Blender: trees built from the engine, read-only, never saved.
+  flexible_drawing_add_test(
+    NAME flexible_drawing.blender_graph_view
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/blender/smoke_driver.py"
+      --source "${PROJECT_SOURCE_DIR}"
+      --library $<TARGET_FILE:flexible_drawing_host_abi>
+      --executable "${BLENDER_PLUGIN_EXECUTABLE}"
+      --script "${CMAKE_CURRENT_SOURCE_DIR}/graph_view_in_blender.py"
+      --cycles 2
+      --success-marker FLEXIBLE_DRAWING_GRAPH_VIEW_OK
+    LABELS blender integration presentation
+    TIMEOUT 120
     SEED 0
     FIXTURES_REQUIRED flexible_drawing_test_environment)
 

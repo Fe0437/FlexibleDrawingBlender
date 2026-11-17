@@ -111,7 +111,7 @@ def fake_ui_schema() -> object:
         element("painting.brush.name.control", "Control", 2, "Text", bound("brush.name", "brush.rename", "Text")),
         element("painting.canvas.clear.control", "Control", 0, "Command", (binding("canvas.clear", "Action", "None"),)),
     )
-    return abi.UiSchema(elements)
+    return abi.PaintingWorkspaceUiView(elements)
 
 
 class FakeBridge:
@@ -120,7 +120,7 @@ class FakeBridge:
 
     def __init__(self) -> None:
         self.Documents = FakeDocuments()
-        self.UiSchema = types.SimpleNamespace(Describe=fake_ui_schema)
+        self.UiSchema = types.SimpleNamespace(DescribePaintingWorkspace=fake_ui_schema)
 
     @classmethod
     def Open(cls, extensionRoot: Path | None = None, log: object = None) -> FakeBridge:
@@ -173,7 +173,7 @@ class RecordingLayout:
         if slider:
             self.Sliders.append(name)
 
-    def operator(self, identifier: str, text: str | None = None) -> types.SimpleNamespace:
+    def operator(self, identifier: str, text: str | None = None, icon: str = "NONE") -> types.SimpleNamespace:
         self.Operators.append(identifier if text is None else f"{identifier} [{text}]")
         # Blender returns the operator's properties so a panel can set them per button.
         properties = types.SimpleNamespace()
@@ -384,7 +384,7 @@ class PluginTests(unittest.TestCase):
         module = self._LoadAbi()
         bridge = module.EngineBridge.FromLibrary(module.LoadLibrary(self.library))
         try:
-            schema = bridge.UiSchema.Describe()
+            schema = bridge.UiSchema.DescribePaintingWorkspace()
         finally:
             bridge.Shutdown()
         self.assertTrue(schema.Surfaces())
@@ -408,7 +408,7 @@ class PluginTests(unittest.TestCase):
         module = self._LoadAbi()
         bridge = module.EngineBridge.FromLibrary(module.LoadLibrary(self.library))
         try:
-            schema = bridge.UiSchema.Describe()
+            schema = bridge.UiSchema.DescribePaintingWorkspace()
             models = [element for element in schema.Elements if getattr(element, "Setting", None) is not None]
             # Each is a control of the editor that shows the active tool's settings.
             self.assertTrue(models)
@@ -440,7 +440,7 @@ class PluginTests(unittest.TestCase):
         module = self._LoadAbi()
         bridge = module.EngineBridge.FromLibrary(module.LoadLibrary(self.library))
         try:
-            schema = bridge.UiSchema.Describe()
+            schema = bridge.UiSchema.DescribePaintingWorkspace()
         finally:
             bridge.Shutdown()
         byId = {element.Id: element for element in schema.Elements}
@@ -453,6 +453,46 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(presented["hardness"].Widget, "Slider")
         self.assertEqual((presented["minimum_radius"].Step, presented["minimum_radius"].Precision), (0.5, 1))
         self.assertTrue(all(not element.NumberSettings for element in schema.Elements if element.Kind != "Editor"))
+
+    def test_the_engine_describes_the_graph_view_of_any_graph(self) -> None:
+        """The UI's graph view editor names its view; the engine lays out tools and stage graphs by name."""
+        module = self._LoadAbi()
+        bridge = module.EngineBridge.FromLibrary(module.LoadLibrary(self.library))
+        try:
+            schema = bridge.UiSchema.DescribePaintingWorkspace()
+            views = [element for element in schema.Elements if getattr(element, "View", None) is not None]
+            self.assertEqual([view.View for view in views], ["graph"])
+            self.assertEqual([binding.Role for binding in views[0].Bindings], ["State"])
+            tool = bridge.UiSchema.DescribeUiView("graph", "freehand.pressure_brush")
+            self.assertEqual((tool.Graph, tool.Profile), ("freehand.pressure_brush", "raster_tool"))
+            boxes = {module.Alternative(box.Box): box for box in tool.Boxes}
+            stages = {
+                value.Name: box.Archetype.Name for (kind, value), box in boxes.items() if kind == "GraphLayoutNodeBox"
+            }
+            self.assertEqual(stages, {"brush": "pressure_brush", "point": "hover_point"})
+            self.assertTrue(
+                all(
+                    module.Alternative(edge.Source.Box)[0] in {"GraphLayoutNodeBox", "GraphLayoutInputsBox"}
+                    for edge in tool.Edges
+                )
+            )
+            brush = bridge.UiSchema.DescribeUiView("graph", "pressure_brush")
+            self.assertEqual(
+                {
+                    value.Name
+                    for kind, value in (module.Alternative(box.Box) for box in brush.Boxes)
+                    if kind == "GraphLayoutNodeBox"
+                },
+                {"brush", "dabs"},
+            )
+            # Described once: asking again gives the same answer.
+            self.assertEqual(bridge.UiSchema.DescribeUiView("graph", "pressure_brush"), brush)
+            for view, subject in (("graph", "no.such_graph"), ("timeline", "freehand.pressure_brush")):
+                with self.assertRaises(module.EngineError) as raised:
+                    bridge.UiSchema.DescribeUiView(view, subject)
+                self.assertEqual(raised.exception.Status, module.generated.FD_UI_SCHEMA_STATUS_UNKNOWN_VIEW)
+        finally:
+            bridge.Shutdown()
 
     def test_a_self_describing_value_refuses_malformed_bytes(self) -> None:
         module = self._LoadAbi()

@@ -21,7 +21,7 @@ import bpy
 from ..realtime_plane.link import LinkState
 from ..realtime_plane.process import ConfiguredProgram, Program
 from . import RealtimePlane, canvas_image
-from .ui_projection import Refresh
+from .painting_workspace_view import Refresh
 
 _logger = logging.getLogger("flexible_drawing")
 # The add-on's own package, which is what Blender names its preferences after.

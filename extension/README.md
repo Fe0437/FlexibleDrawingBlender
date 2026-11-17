@@ -143,7 +143,7 @@ Important rules:
 | `presentation/realtime_plane.py` | Open and Stop Canvas, the preference, and the timer that follows the link. |
 | `presentation/canvas_image.py` | The canvas as a Blender image, updated from the timer and made again when lost. |
 | `presentation/canvas_material.py` | Use Canvas in Material: binds the canvas into the active object's material. |
-| `presentation/ui_projection.py` | Panels and properties made from the engine's UI schema. |
+| `presentation/painting_workspace_view.py` | Panels and properties made from the engine's UI schema. |
 | `host/document_binding.py` | Stores engine document identity in Blender data. |
 | `host/canvas_binding.py` | Marks material nodes with the canvas they show, and points them at it again. |
 | `host/geometry.py` | Converts Blender geometry to and from plain buffers. |

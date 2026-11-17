@@ -15,6 +15,9 @@ The format is specified in src/host/abi/README.md, under "Self-describing values
 | enumerator | `str`: the C++ enumerator's name, such as "Choice" |
 | list       | `tuple`                                          |
 | record     | `Record`, whose attributes are the C++ field names |
+
+A C++ `std::variant` crosses as a record with one field, named after the type of the alternative it holds,
+such as `{GraphLayoutNodeBox: {Name: "brush"}}`; `Alternative` reads one.
 """
 
 from __future__ import annotations
@@ -52,6 +55,14 @@ class Record:
 
     def __repr__(self) -> str:
         return f"Record({', '.join(f'{name}={value!r}' for name, value in self._fields.items())})"
+
+
+def Alternative(record: Record) -> tuple[str, Any]:
+    """The alternative a decoded `std::variant` holds: its C++ type name, and its value."""
+    fields = object.__getattribute__(record, "_fields")
+    if len(fields) != 1:
+        raise ValueError(f"a variant holds one alternative, not {len(fields)} fields")
+    return next(iter(fields.items()))
 
 
 class ValueReader:

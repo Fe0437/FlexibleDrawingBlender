@@ -171,7 +171,7 @@ def _insideBlender(exchange: Path, module: str) -> None:
 
     presentation = importlib.import_module(f"{module}.presentation")
     canvas = importlib.import_module(f"{module}.presentation.canvas_image")
-    projection = importlib.import_module(f"{module}.presentation.ui_projection")
+    projection = importlib.import_module(f"{module}.presentation.painting_workspace_view")
     linkState = importlib.import_module(f"{module}.realtime_plane.link").LinkState
 
     def link() -> object:

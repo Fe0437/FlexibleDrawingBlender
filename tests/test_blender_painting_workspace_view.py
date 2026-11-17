@@ -122,7 +122,7 @@ class ProjectionTests(unittest.TestCase):
         self.module.register()
         self.addCleanup(self.module.unregister)
         self.link = FakeLink.created[-1]
-        self.projection = importlib.import_module("flexible_drawing.presentation.ui_projection")
+        self.projection = importlib.import_module("flexible_drawing.presentation.painting_workspace_view")
         self.registered = {getattr(found, "bl_idname", found.__name__): found for found in self.bpy.registered}
         self.values = self.registered["FD_UiValues"]
         # Blender would make this from the values group when it registers it.
@@ -145,7 +145,7 @@ class ProjectionTests(unittest.TestCase):
     def test_session_parameters_replace_controls_and_choices(self) -> None:
         record = self.projection.Record
         binding = record({"Owner": record({"Value": OWNER}), "Id": record({"Value": "active_tool"}), "Role": "State"})
-        schema = self.projection.UiSchema(
+        schema = self.projection.PaintingWorkspaceUiView(
             (
                 record(
                     {
@@ -219,7 +219,7 @@ class ProjectionTests(unittest.TestCase):
                 }
             )
 
-        schema = self.projection.UiSchema(
+        schema = self.projection.PaintingWorkspaceUiView(
             (
                 record(
                     {
@@ -287,6 +287,41 @@ class ProjectionTests(unittest.TestCase):
         self.projection._drawChildren(drawn, 0)
         self.assertIn("Brush settings", drawn.Labels)
         self.assertEqual(drawn.Sliders, [made["hardness"].Property])
+
+    def test_an_editor_that_shows_the_graph_view_is_a_button_that_opens_it(self) -> None:
+        """Blender shows a graph in a node editor, so the editor that shows the graph view is a button."""
+        record = importlib.import_module("flexible_drawing.abi").Record
+        state = record(
+            {
+                "Owner": record({"Value": OWNER}),
+                "Id": record({"Value": "active_tool"}),
+                "Role": "State",
+                "Value": "Identity",
+            }
+        )
+        schema = importlib.import_module("flexible_drawing.abi").PaintingWorkspaceUiView(
+            (
+                record(
+                    {"Id": "painting.workspace", "Kind": "Surface", "Parent": None, "Bindings": (), "Control": None}
+                ),
+                record(
+                    {
+                        "Id": "painting.active_tool.graph",
+                        "Kind": "Editor",
+                        "Parent": 0,
+                        "Bindings": (state,),
+                        "Control": None,
+                        "Label": "Graph",
+                        "View": "graph",
+                    }
+                ),
+            ),
+        )
+        self.projection.Project(schema)
+        drawn = RecordingLayout()
+        self.projection._drawChildren(drawn, 0)
+        self.assertEqual(drawn.Operators, ["flexible_drawing.graph_view_open [Open Graph]"])
+        self.assertIn("flexible_drawing.graph_view_open", self.registered)
 
     def test_every_role_becomes_a_widget_and_every_container_a_panel(self) -> None:
         widgets = {name: (field["kind"], field["name"]) for name, field in self.values.__annotations__.items()}

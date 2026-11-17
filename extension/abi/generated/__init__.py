@@ -54,7 +54,9 @@ from .document import (
 from .ui_schema import (
     FD_INTERFACE_UI_SCHEMA,
     FD_INTERFACE_UI_SCHEMA_VERSION,
+    FD_UI_SCHEMA_STATUS_UNKNOWN_VIEW,
     FD_UI_SCHEMA_STATUS_UNRESOLVED,
+    FD_UI_SCHEMA_VIEW_PAINTING_WORKSPACE,
     fd_ui_schema_api,
 )
 
@@ -81,7 +83,9 @@ __all__ = [
     "FD_LOG_SEVERITY_INFO",
     "FD_LOG_SEVERITY_TRACE",
     "FD_LOG_SEVERITY_WARNING",
+    "FD_UI_SCHEMA_STATUS_UNKNOWN_VIEW",
     "FD_UI_SCHEMA_STATUS_UNRESOLVED",
+    "FD_UI_SCHEMA_VIEW_PAINTING_WORKSPACE",
     "fd_document_api",
     "fd_document_snapshot",
     "fd_engine",

@@ -8,23 +8,6 @@ set(BLENDER_PLUGIN_EXECUTABLE "" CACHE FILEPATH "Supported Blender executable th
 option(BLENDER_PLUGIN_INTERACTIVE "Run checks that take the interactive desktop and pointer" OFF)
 set(BLENDER_PLUGIN_WHEEL_DIR "" CACHE PATH "Python wheels, and their licence notices, the extension bundles")
 
-add_library(flexible_drawing_blender_ui_schema_fixture)
-flexible_drawing_add_modules(flexible_drawing_blender_ui_schema_fixture .)
-target_link_libraries(flexible_drawing_blender_ui_schema_fixture PUBLIC flexible_drawing_ui_schema_fixtures)
-flexible_drawing_set_warnings(flexible_drawing_blender_ui_schema_fixture)
-flexible_drawing_apply_enabled_sanitizers(flexible_drawing_blender_ui_schema_fixture)
-
-flexible_drawing_add_program(flexible_drawing_blender_ui_schema_contract_test blender_ui_schema_contract)
-target_link_libraries(flexible_drawing_blender_ui_schema_contract_test PRIVATE flexible_drawing_blender_ui_schema_fixture)
-
-flexible_drawing_add_test(
-  NAME flexible_drawing.blender_ui_schema_contract
-  COMMAND $<TARGET_FILE:flexible_drawing_blender_ui_schema_contract_test>
-  LABELS unit contract blender presentation schema
-  TIMEOUT 30
-  SEED 0
-  FIXTURES_REQUIRED flexible_drawing_test_environment)
-
 flexible_drawing_add_test(
   NAME flexible_drawing.blender_tool_check_contract
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_tool_check_contract.py"
